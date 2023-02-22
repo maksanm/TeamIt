@@ -1,0 +1,61 @@
+﻿@using Microsoft.AspNetCore.SignalR.Client;
+@inject HubConnection HubConnection
+
+@implements IAsyncDisposable
+
+<Blazorise.ThemeProvider Theme="@theme">
+    <Router AppAssembly="typeof(App).Assembly">
+        <Found Context="routeData">
+            <AuthorizedRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
+        </Found>
+        <NotFound>
+            <p>Sorry, there's nothing at this address.</p>
+        </NotFound>
+    </Router>
+    <MessageProvider />
+    <NotificationProvider />
+    <PageProgressProvider />
+</Blazorise.ThemeProvider>
+@code {
+    private Blazorise.Theme theme = new()
+        {
+            BarOptions = new()
+            {
+                HorizontalHeight = "72px"
+            },
+            ColorOptions = new()
+            {
+                Primary = "#0288D1",
+                Secondary = "#A65529",
+                Success = "#23C02E",
+                Info = "#9BD8FE",
+                Warning = "#F8B86C",
+                Danger = "#F95741",
+                Light = "#F0F0F0",
+                Dark = "#000000",
+            },
+            BackgroundOptions = new()
+            {
+                Primary = "#ADD8E6",
+                Secondary = "#90EE90",
+                Danger = "#FFCCCB",
+            },
+            InputOptions = new()
+            {
+                CheckColor = "#0288D1",
+            },
+            TextColorOptions = new()
+            {
+                Primary = "#000000"
+            }
+        };
+    protected override async Task OnInitializedAsync()
+    {
+        await HubConnection.StartAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await HubConnection.DisposeAsync();
+    }
+}

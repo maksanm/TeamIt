@@ -1,0 +1,262 @@
+﻿@page "/teams"
+
+@attribute [Authorize]
+
+@using Models.Teams.Dto
+@using Models.Teams.Commands
+@using Models.Teams.Queries
+
+@inject ITeamService TeamService
+@inject IHttpService HttpService
+@inject INotificationService NotificationService
+
+<Modal @ref="createTeamModal">
+	<ModalContent Centered>
+		<ModalHeader>
+			<ModalTitle>Create new team</ModalTitle>
+			<CloseButton />
+		</ModalHeader>
+		<ModalBody>
+			<Validations @ref="validations" StatusChanged="ValidationStatusChanged" Mode="ValidationMode.Auto" ValidateOnLoad="false">
+				<Validation Validator="@((e) => Validator.IsNotNullOrWhiteSpace(e, "Team name"))">
+					<Field>
+						<FieldLabel>
+							Name*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit Placeholder="Team name" @bind-Text="createTeamCommand.Name">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+				<Field>
+					<FieldLabel>
+						Image
+					</FieldLabel>
+					<FieldBody>
+						<FileEdit @ref="imagePicker" Filter=".jpg, .png"></FileEdit>
+					</FieldBody>
+				</Field>
+			</Validations>
+		</ModalBody>
+		<ModalFooter>
+			<Button Background="Background.Primary" Disabled="!createTeamButtonEnabled" Clicked="CreateTeam">Create</Button>
+			<Button Background="Background.Danger" Clicked="HideCreateTeamModal">Close</Button>
+		</ModalFooter>
+	</ModalContent>
+</Modal>
+
+<Heading Flex="Flex.JustifyContent.Center" Size="HeadingSize.Is2">Teams</Heading>
+
+@if (firstLoad)
+{
+	<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+		<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+	</Div>
+}
+else
+{
+	<Tabs SelectedTab="@selectedTab" SelectedTabChanged="SelectedTabChanged">
+		<Items>
+			<Tab Name="@TEAMS">@TEAMS</Tab>
+			<Tab Name="@INVITES">@INVITES</Tab>
+		</Items>
+		<Content>
+			<TabPanel Name="@TEAMS">
+				@if (teams is null)
+				{
+					<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+					</Div>
+				}
+				else if (teams.Count == 0)
+				{
+					<Div Display="Display.Flex.Column" Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">You are not a member of any team</Heading>
+						<Button Background="Background.Primary" Clicked="ShowCreateTeamModal">Create new team</Button>
+					</Div>
+				}
+				else
+				{
+					<Div Flex="Flex.JustifyContent.End">
+						<Button Background="Background.Primary" Margin="Margin.Is2.OnY" Clicked="ShowCreateTeamModal">Create new team</Button>
+					</Div>
+					<Div Overflow="Overflow.Auto" Style="max-height: 650px;" Display="Display.Flex.Column">
+						@foreach (var row in Split(teams, 5))
+						{
+							<Div Margin="Margin.Is2.FromTop" Display="Display.Flex.Row">
+								@foreach (var team in row)
+								{
+									<Div Style="width: 20%!important" Flex="Flex.JustifyContent.Center">
+										<Anchor Padding="Blazorise.Padding.Is2.FromTop" Background="Background.Primary" Style="width: 150px; height: 140px;" Flex="Flex.JustifyContent.Center" To="@($"/teams/{team.Id}")" Target="Target.Self">
+											<Div Flex="Flex.Column.JustifyContent.Center">
+												<Div Flex="Flex.JustifyContent.Center">
+													<div>
+														<Image Border="Border.Is1" Source="@(team.PictureUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + team.PictureUrl)" Class="big-avatar"></Image>
+													</div>
+												</Div>
+												<Div TextAlignment="TextAlignment.Center">@team.Name</Div>
+											</Div>
+										</Anchor>
+									</Div>
+								}
+							</Div>
+						}
+					</Div>
+				}
+			</TabPanel>
+			<TabPanel Name="@INVITES">
+				@if (requests is null)
+				{
+					<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+					</Div>
+				}
+				else if (requests.Count == 0)
+				{
+					<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">You have no invites</Heading>
+					</Div>
+				}
+				else
+				{
+					<DataGrid TItem="JoinTeamRequestDto" Data="requests" RowSelectable="row => false" Responsive Virtualize Editable>
+						<DataGridColumns>
+							<DataGridColumn Field="Team.Name" Caption="Team name"></DataGridColumn>
+							<DataGridColumn Caption="Inviter">
+								<DisplayTemplate>
+									@context!.RequestSender.Name @context.RequestSender.Surname
+								</DisplayTemplate>
+							</DataGridColumn>
+							<DataGridCommandColumn>
+								<NewCommandTemplate></NewCommandTemplate>
+								<EditCommandTemplate>
+									<Button Background="Background.Primary" Clicked="() => AnswerRequest(context.Item!, true)">Accept</Button>
+								</EditCommandTemplate>
+								<DeleteCommandTemplate>
+									<Button Background="Background.Danger" Margin="Margin.Is2.FromStart" Clicked="() => AnswerRequest(context.Item!, false)">Reject</Button>
+								</DeleteCommandTemplate>
+							</DataGridCommandColumn>
+						</DataGridColumns>
+					</DataGrid>
+				}
+			</TabPanel>
+		</Content>
+	</Tabs>
+}
+
+@code {
+	const string TEAMS = "Teams", INVITES = "Invites";
+
+	bool createTeamButtonEnabled = false, firstLoad = true;
+	CreateTeamCommand createTeamCommand = new CreateTeamCommand();
+	FileEdit? imagePicker;
+	Modal? createTeamModal;
+	List<TeamDto>? teams;
+	Validations? validations;
+	List<JoinTeamRequestDto>? requests;
+	string selectedTab = TEAMS;
+
+	protected override async Task OnInitializedAsync()
+	{
+		await UpdateTeams();
+		firstLoad = false;
+	}
+
+	async Task ShowCreateTeamModal() => await createTeamModal!.Show();
+
+	async Task HideCreateTeamModal() => await createTeamModal!.Hide();
+
+	void ValidationStatusChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			createTeamButtonEnabled = true;
+		else
+			createTeamButtonEnabled = false;
+	}
+
+	async Task SelectedTabChanged(string name)
+	{
+		selectedTab = name;
+		switch (name)
+		{
+			case TEAMS:
+				await UpdateTeams();
+				break;
+			case INVITES:
+				await UpdateRequests();
+				break;
+		}
+	}
+
+	async Task CreateTeam()
+	{
+		try
+		{
+			await TeamService.CreateTeam(createTeamCommand, imagePicker!.Files is null || imagePicker.Files.Length == 0 ? null : imagePicker.Files[0]);
+			await UpdateTeams();
+			await HideCreateTeamModal();
+			await validations!.ClearAll();
+			createTeamCommand.Name = "";
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task UpdateTeams()
+	{
+		try
+		{
+			teams = (await TeamService.GetTeams(new GetCurrentUserTeamsQuery())).ToList();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task UpdateRequests()
+	{
+		try
+		{
+			requests = (await TeamService.GetJoinRequests(new GetCurrentUserJoinTeamRequestsQuery())).ToList();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task AnswerRequest(JoinTeamRequestDto request, bool accept)
+	{
+		try
+		{
+			var model = new AnswerJoinTeamRequestCommand()
+				{
+					Approve = accept,
+					RequestId = request.Id
+				};
+			await TeamService.AnswerJoinRequest(model);
+			requests!.Remove(request);
+			if (accept)
+				teams!.Add(request.Team);
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	IEnumerable<IEnumerable<T>> Split<T>(IEnumerable<T> list, int size)
+	{
+		for (var i = 0; i < list.Count() / size + 1; i++)
+		{
+			yield return list.Skip(i * size).Take(size);
+		}
+	}
+}

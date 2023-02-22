@@ -1,0 +1,98 @@
+﻿@using WebUI.Components.Layout
+@using WebUI.Services;
+@inherits LayoutComponentBase
+
+@inject IUserService UserService
+
+@if (UserService.IsLoggedIn())
+{
+    <Layout Sider>
+        <LayoutSider>
+            <LayoutSiderContent>
+                <SideMenu />
+            </LayoutSiderContent>
+        </LayoutSider>
+        <Layout>
+            <LayoutContent Padding="Blazorise.Padding.Is4.OnX.Is4.FromTop">
+                @Body
+            </LayoutContent>
+        </Layout>
+    </Layout>
+}
+else
+{
+    <Layout>
+        <LayoutContent Padding="Blazorise.Padding.Is4.OnX.Is4.FromTop">
+            @Body
+        </LayoutContent>
+    </Layout>
+}
+
+@*@if (UserService.IsLoggedIn())
+{
+    @if (layoutType == "fixed-header")
+    {
+        <Layout Sider>
+            <LayoutSider>
+                <LayoutSiderContent>
+                    <SideMenu />
+                </LayoutSiderContent>
+            </LayoutSider>
+            <Layout>
+                <LayoutHeader Fixed>
+                    <TopMenu ThemeEnabledChanged="@OnThemeEnabledChanged"
+                     ThemeGradientChanged="@OnThemeGradientChanged"
+                     ThemeRoundedChanged="@OnThemeRoundedChanged"
+                     ThemeColorChanged="@OnThemeColorChanged"
+                     @bind-LayoutType="@layoutType" />
+                </LayoutHeader>
+                <LayoutContent Padding="Padding.Is4.OnX.Is4.FromTop">
+                    @Body
+                </LayoutContent>
+            </Layout>
+        </Layout>
+    }
+    else if (layoutType == "fixed-header-footer-only")
+    {
+        <Layout>
+            <LayoutHeader Fixed>
+                <TopMenu ThemeEnabledChanged="@OnThemeEnabledChanged"
+                 ThemeGradientChanged="@OnThemeGradientChanged"
+                 ThemeRoundedChanged="@OnThemeRoundedChanged"
+                 ThemeColorChanged="@OnThemeColorChanged"
+                 @bind-LayoutType="@layoutType" />
+            </LayoutHeader>
+            <LayoutContent Padding="Padding.Is4.OnX.Is4.FromTop">
+                @Body
+            </LayoutContent>
+            <LayoutFooter Fixed>
+                <FooterMenu></FooterMenu>
+            </LayoutFooter>
+        </Layout>
+    }
+    else if (layoutType == "sider-with-header-on-top")
+    {
+        <Layout>
+            <Layout Sider>
+                <LayoutSider>
+                    <LayoutSiderContent>
+                        <SideMenu />
+                    </LayoutSiderContent>
+                </LayoutSider>
+                <Layout>
+                    <LayoutContent Padding="Padding.Is4.OnX.Is4.FromTop">
+                        @Body
+                    </LayoutContent>
+                </Layout>
+            </Layout>
+        </Layout>
+    }
+}
+else
+{
+    <Layout>
+        <LayoutContent Padding="Padding.Is4.OnX.Is4.FromTop">
+            @Body
+        </LayoutContent>
+    </Layout>
+}*@

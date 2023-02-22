@@ -1,0 +1,88 @@
+﻿@page "/account/login"
+
+@using Models.Users.Commands;
+
+@inject NavigationManager NavigationManager
+@inject IUserService UserService
+@inject INotificationService NotificationService
+
+<Div Margin="Margin.Is2.FromBottom" Style="background-image: url(images/login.jpg); background-size: 110% 110%; background-position: center; background-repeat: no-repeat" Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+	<Card Width="Width.Is25">
+		<CardHeader>
+			<CardTitle>
+				Log in
+			</CardTitle>
+		</CardHeader>
+		<CardBody>
+			<Validations StatusChanged="ValidationStatusChanged" Mode="ValidationMode.Auto" ValidateOnLoad="false">
+				<Validation Validator="@((e) => Validator.IsNotNullOrWhiteSpace(e, "Login"))">
+					<Field>
+						<FieldLabel>
+							Login*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit Placeholder="Your login" @bind-Text="loginCommand.Login">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+				<Validation Validator="Validator.IsPassword">
+					<Field>
+						<FieldLabel>
+							Password*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit Role="TextRole.Password" Placeholder="Your password" @bind-Text="loginCommand.Password">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+						<FieldBody>
+							<Label>User data for demostration: testuser, Password!123</Label>
+						</FieldBody>
+					</Field>
+				</Validation>
+			</Validations>
+		</CardBody>
+		<CardFooter>
+			<Button Background="Background.Primary" Disabled="!logInButtonEnabled" Margin="Margin.Is2.FromEnd" Clicked="LogIn">Log in</Button>
+			<Anchor To="/account/register">Register</Anchor>
+		</CardFooter>
+	</Card>
+</Div>
+
+@code {
+	LoginCommand loginCommand = new LoginCommand();
+	bool logInButtonEnabled = false;
+
+	async Task LogIn()
+	{
+		try
+		{
+			await UserService.Login(loginCommand);
+		}
+		catch (Exception e)
+		{
+			string message;
+			if (e.Message.Contains("Incorrect login or password"))
+				message = "Incorrect login or password";
+			else
+				message = "Unhandled error happend. Please reload page and try again";
+			await NotificationService.Error(message, "Error");
+			return;
+		}
+		NavigationManager.NavigateTo("/");
+	}
+
+	void ValidationStatusChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			logInButtonEnabled = true;
+		else
+			logInButtonEnabled = false;
+	}
+}

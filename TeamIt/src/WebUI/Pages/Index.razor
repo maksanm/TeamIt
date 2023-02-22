@@ -1,0 +1,18 @@
+﻿@page "/"
+
+@attribute [Authorize]
+
+@inject IUserService UserService
+@inject IHttpService HttpService
+
+<Div Width="Width.Is100" Height="Height.Is100" Display="Display.Flex.Column" Flex="Flex.JustifyContent.Center.AlignItems.Center">
+	<div>
+		<Image Border="Border.Is1" Source="@(UserService.User!.ImageUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + UserService.User.ImageUrl)" Class="big-avatar"></Image>
+	</div>
+	<Heading Size="HeadingSize.Is2">
+		Hi, @(UserService.User!.Name + " " + UserService.User!.Surname)
+	</Heading>
+	<Paragraph>
+		All available modules can be accessed by side menu on the left
+	</Paragraph>
+</Div>

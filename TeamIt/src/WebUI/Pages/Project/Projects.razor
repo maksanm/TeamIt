@@ -1,0 +1,303 @@
+﻿@page "/projects"
+
+@attribute [Authorize]
+
+@using Models.Enums;
+@using Models.Permissions.Dto;
+@using Models.Permissions.Queries;
+@using Models.Projects.Commands;
+@using Models.Projects.Dto;
+@using Models.Projects.Queries;
+@using Models.Teams.Dto;
+@using Models.Teams.Queries;
+
+@inject IProjectService ProjectService
+@inject IPermissionService PermissionService
+@inject ITeamService TeamService
+@inject IHttpService HttpService
+@inject INotificationService NotificationService
+
+@if (permissions is not null)
+{
+	<Modal @ref="createProjectModal">
+		<ModalContent Centered>
+			<ModalHeader>
+				<ModalTitle>Create new project</ModalTitle>
+				<CloseButton />
+			</ModalHeader>
+			<ModalBody>
+				<Validations @ref="createProjectValidations" StatusChanged="CreateProjectValidationChanged" ValidateOnLoad="false">
+					<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Project name"))">
+						<Field>
+							<FieldLabel>
+								Project name*
+							</FieldLabel>
+							<FieldBody>
+								<TextEdit @bind-Text="createProjectCommand.Name">
+									<Feedback>
+										<ValidationError></ValidationError>
+									</Feedback>
+								</TextEdit>
+							</FieldBody>
+						</Field>
+					</Validation>
+					<Field>
+						<FieldLabel>
+							Project description
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit @bind-Text="createProjectCommand.Description"></TextEdit>
+						</FieldBody>
+					</Field>
+					<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Limit name"))">
+						<Field>
+							<FieldLabel>
+								Limit role name*
+							</FieldLabel>
+							<FieldBody>
+								<TextEdit @bind-Text="createProjectCommand.LimitRoleName">
+									<Feedback>
+										<ValidationError></ValidationError>
+									</Feedback>
+								</TextEdit>
+							</FieldBody>
+						</Field>
+					</Validation>
+					<Select Multiple TValue="PermissionEnumDto" @bind-SelectedValues="selectedPermissionIds">
+						@foreach (var permission in permissions!.Where(permission => Enum.GetName(typeof(PermissionEnumDto), permission.Id)!.StartsWith("PM")))
+						{
+							<SelectItem Value="permission.Id">@permission.Name</SelectItem>
+						}
+					</Select>
+					<Field Margin="Margin.Is1.FromStart" Horizontal>
+						<FieldLabel Margin="Margin.Is2.FromEnd">
+							Use own hierarchy
+						</FieldLabel>
+						<FieldBody Flex="Flex.AlignSelf.Center">
+							<Check TValue="bool" @bind-Checked="createProjectCommand.UseOwnHierarchy"></Check>
+						</FieldBody>
+					</Field>
+					<Field>
+						<FieldLabel>
+							Creator team*
+						</FieldLabel>
+						<FieldBody>
+							<Autocomplete @ref="creatorTeamAutocomplete"
+									  TItem="TeamDto"
+									  TValue="long?"
+									  Data="teamsFiltered"
+									  ReadData="FindTeam"
+									  TextField="team => team.Name"
+									  ValueField="team => team.Id"
+									  SelectedValueChanged="CreatorTeamIdChanged"
+									  Placeholder="Search...">
+								<NotFoundContent>
+									Sorry... @context was not found!
+								</NotFoundContent>
+							</Autocomplete>
+						</FieldBody>
+					</Field>
+				</Validations>
+				<Field>
+					<FieldLabel>
+						Start date
+					</FieldLabel>
+					<FieldBody>
+						<Addons>
+							<Addon AddonType="AddonType.Body">
+								<DatePicker Margin="Margin.Is0.FromStart" @ref="startDatePicker" InputMode="DateInputMode.DateTime" TimeAs24hr TValue="DateTime?" @bind-Date="createProjectCommand.StartDate"></DatePicker>
+							</Addon>
+							<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+								<Button Clicked="() => startDatePicker!.ToggleAsync()">
+									<Icon Name="IconName.CalendarDay"></Icon>
+								</Button>
+							</Addon>
+						</Addons>
+					</FieldBody>
+				</Field>
+				<Field>
+					<FieldLabel>
+						Deadline
+					</FieldLabel>
+					<FieldBody>
+						<Addons>
+							<Addon AddonType="AddonType.Body">
+								<DatePicker Margin="Margin.Is0.FromStart" @ref="deadlinePicker" Min="!createProjectCommand.StartDate.HasValue ? DateTimeOffset.Now : DateTimeOffset.Compare(createProjectCommand.StartDate!.Value, DateTimeOffset.Now) > 0 ? createProjectCommand.StartDate!.Value : DateTimeOffset.Now" TimeAs24hr InputMode="DateInputMode.DateTime" TValue="DateTime?" @bind-Date="createProjectCommand.DeadLine"></DatePicker>
+							</Addon>
+							<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+								<Button Clicked="() => deadlinePicker!.ToggleAsync()">
+									<Icon Name="IconName.CalendarDay"></Icon>
+								</Button>
+							</Addon>
+						</Addons>
+					</FieldBody>
+				</Field>
+				<Field>
+					<FieldLabel>
+						Image
+					</FieldLabel>
+					<FieldBody>
+						<FileEdit @ref="imagePicker" Filter=".jpg, .png"></FileEdit>
+					</FieldBody>
+				</Field>
+			</ModalBody>
+			<ModalFooter>
+				<Button Background="Background.Primary" Disabled="!createProjectButtonEnabled" Clicked="CreateProject">Create</Button>
+				<Button Background="Background.Danger" Clicked="HideCreateTeamModal">Close</Button>
+			</ModalFooter>
+		</ModalContent>
+	</Modal>
+}
+
+<Heading Flex="Flex.JustifyContent.Center" Size="HeadingSize.Is2">Projects</Heading>
+
+@if (projects is null)
+{
+	<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+		<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+	</Div>
+}
+else if (projects.Length == 0)
+{
+	<Div Display="Display.Flex.Column" Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+		<Heading Size="HeadingSize.Is4">You are not a member of any project</Heading>
+		<Button Background="Background.Primary" Clicked="ShowCreateProjectModal">Create new project</Button>
+	</Div>
+}
+else
+{
+	<DataGrid TItem="ProjectInfoDto" Data="projects" RowSelectable=@((row) => false) Responsive Virtualize Editable>
+		<DataGridColumns>
+			<DataGridColumn Field="@nameof(ProjectInfoDto.Name)" Caption="Name">
+				<DisplayTemplate>
+					<Anchor Display="Display.Flex.Row" To="@($"/projects/{context!.Id}")" Target="Target.Self">
+						<div>
+							<Image Margin="Margin.Is2.FromEnd" Border="Border.Is1" Source="@(context.PictureUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + context.PictureUrl)" Class="avatar"></Image>
+						</div>
+						<Heading Flex="Flex.AlignSelf.Center" Size="HeadingSize.Is6" Margin="Margin.Is0.FromBottom">
+							@context.Name
+						</Heading>
+					</Anchor>
+				</DisplayTemplate>
+			</DataGridColumn>
+			<DataGridColumn Field="@nameof(ProjectInfoDto.StartDate)" Caption="Start date">
+				<DisplayTemplate>
+					@if (context!.StartDate is null)
+					{
+						@("No start date")
+					}
+					else
+					{
+						@(context.StartDate.Value.ToString("dd/MM/yyyy HH:mm"))
+					}
+				</DisplayTemplate>
+			</DataGridColumn>
+			<DataGridColumn Field="@nameof(ProjectInfoDto.DeadLine)" Caption="Deadline">
+				<DisplayTemplate>
+					@if (context!.DeadLine is null)
+					{
+						@("No deadline")
+					}
+					else
+					{
+						@(context.DeadLine.Value.ToString("dd/MM/yyyy HH:mm"))
+					}
+				</DisplayTemplate>
+			</DataGridColumn>
+			<DataGridCommandColumn>
+				<NewCommandTemplate>
+					<Button Background="Background.Primary" Clicked="ShowCreateProjectModal">Create new project</Button>
+				</NewCommandTemplate>
+				<EditCommandTemplate></EditCommandTemplate>
+				<DeleteCommandTemplate></DeleteCommandTemplate>
+			</DataGridCommandColumn>
+		</DataGridColumns>
+	</DataGrid>
+}
+
+@code {
+	Modal? createProjectModal;
+	CreateProjectCommand createProjectCommand = new CreateProjectCommand();
+	IReadOnlyList<PermissionEnumDto>? selectedPermissionIds { get; set; }
+	PermissionDto[]? permissions;
+	Autocomplete<TeamDto, long?>? creatorTeamAutocomplete;
+	IEnumerable<TeamDto>? teamsFiltered;
+	TeamDto[]? teams;
+	bool createProjectButtonEnabled = false;
+	DatePicker<DateTime?>? startDatePicker, deadlinePicker;
+	FileEdit? imagePicker;
+	Validations? createProjectValidations;
+	ProjectInfoDto[]? projects;
+
+	protected override async Task OnInitializedAsync()
+	{
+		permissions = await PermissionService.GetPermissions(new GetPermissionsQuery());
+		teams = await TeamService.GetTeams(new GetCurrentUserTeamsQuery());
+		await UpdateProjects();
+	}
+
+	void FindTeam(AutocompleteReadDataEventArgs e)
+	{
+		if (!e.CancellationToken.IsCancellationRequested)
+		{
+			teamsFiltered = teams!.Where(team => team.Name.ToLower().Contains(e.SearchValue.ToLower()));
+		}
+	}
+
+	void CreatorTeamIdChanged(long? value)
+	{
+		createProjectCommand.CreatorTeamId = value ?? 0;
+		if (value is null)
+			createProjectButtonEnabled = false;
+		else
+			createProjectButtonEnabled = true;
+	}
+
+	void CreateProjectValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			createProjectButtonEnabled = true;
+		else
+			createProjectButtonEnabled = false;
+	}
+
+	async Task CreateProject()
+	{
+		try
+		{
+			createProjectCommand.LimitRolePermissionIds = selectedPermissionIds is null ? new List<int>() : selectedPermissionIds.Select(id => (int)id).ToList();
+			await ProjectService.CreateProject(createProjectCommand, imagePicker!.Files is null || imagePicker.Files.Length == 0 ? null : imagePicker.Files[0]);
+			await UpdateProjects();
+			await createProjectModal!.Hide();
+			createProjectCommand.StartDate = createProjectCommand.DeadLine = null;
+			createProjectCommand.LimitRolePermissionIds = null;
+			selectedPermissionIds = null;
+			createProjectCommand.LimitRoleName = string.Empty;
+			createProjectCommand.CreatorTeamId = 0;
+			createProjectCommand.Name = string.Empty;
+			createProjectCommand.Description = null;
+			selectedPermissionIds = null;
+			await createProjectValidations!.ClearAll();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task UpdateProjects()
+	{
+		try
+		{
+			projects = await ProjectService.GetCurrentUserProjects(new GetCurrentUserProjectInfosQuery());
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task HideCreateTeamModal() => await createProjectModal!.Hide();
+
+	async Task ShowCreateProjectModal() => await createProjectModal!.Show();
+}

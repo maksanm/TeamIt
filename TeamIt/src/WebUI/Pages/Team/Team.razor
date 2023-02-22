@@ -1,0 +1,785 @@
+@page "/teams/{teamId:long}"
+
+@attribute [Authorize]
+
+@using Models.Enums
+@using Models.Roles.Commands
+@using Models.Roles.Dto
+@using Models.Roles.Queries
+@using Models.Teams.Commands
+@using Models.Teams.Dto
+@using Models.Teams.Queries
+@using Models.Users.Commands
+@using Models.Users.Dto
+@using Models.Users.Queries
+@using Models.Permissions.Dto
+@using Models.Permissions.Queries
+
+@inject NavigationManager NavigationManager
+@inject ITeamService TeamService
+@inject IUserService UserService
+@inject IPermissionService PermissionService
+@inject IHttpService HttpService
+@inject INotificationService NotificationService
+
+<Modal @ref="addNewMemberModal">
+	<ModalContent Centered>
+		<ModalHeader>
+			<ModalTitle>Send invite</ModalTitle>
+			<CloseButton />
+		</ModalHeader>
+		<ModalBody>
+			<Field>
+				<FieldLabel>
+					User*
+				</FieldLabel>
+				<FieldBody>
+					<Autocomplete @ref="addNewMemberAutocomplete"
+								  TItem="UserDto"
+								  TValue="string"
+								  Data="usersToAddToTeamFiltered"
+								  ReadData="FindUsersToAddToTeam"
+								  TextField="@(user => user.Name + " " + user.Surname)"
+								  ValueField="user => user.Id"
+								  SelectedValueChanged="NewMemberIdChanged"
+								  Placeholder="Search...">
+						<NotFoundContent>
+							Sorry... @context was not found!
+						</NotFoundContent>
+					</Autocomplete>
+				</FieldBody>
+			</Field>
+		</ModalBody>
+		<ModalFooter>
+			<Button Background="Background.Primary" Disabled="!addNewMemberButtonEnabled" Clicked="AddNewMember">Send</Button>
+			<Button Background="Background.Danger" Clicked="HideAddNewMemberModal">Close</Button>
+		</ModalFooter>
+	</ModalContent>
+</Modal>
+
+@if (members is not null && roles is not null)
+{
+	<Modal @ref="assignRoleModal">
+		<ModalContent Centered>
+			<ModalHeader>
+				<ModalTitle>
+					@if (assignRoleCommand.UserId == string.Empty)
+					{
+						@("Assign role to")
+					}
+					else
+					{
+						var member = members.First(member => member.User.Id == assignRoleCommand.UserId);
+						@("Assign role to " + member.User.Name + " " + member.User.Surname)
+					}
+				</ModalTitle>
+				<CloseButton />
+			</ModalHeader>
+			<ModalBody>
+				<Validations StatusChanged="AssignRoleValidationChanged" ValidateOnLoad="false">
+					<Field>
+						<FieldLabel>
+							Role*
+						</FieldLabel>
+						<FieldBody>
+							<Autocomplete @ref="assignRoleAutocomplete"
+									  TItem="RoleDto"
+									  TValue="long?"
+									  Data="rolesFiltered"
+									  ReadData="FindRoles"
+									  TextField="role => role.Name"
+									  ValueField="role => role.Id"
+									  SelectedValueChanged="SelectedRoleChanged"
+									  Placeholder="Search...">
+								<NotFoundContent>
+									Sorry... @context was not found!
+								</NotFoundContent>
+							</Autocomplete>
+						</FieldBody>
+					</Field>
+				</Validations>
+			</ModalBody>
+			<ModalFooter>
+				<Button Background="Background.Primary" Disabled="!assignRoleButtonEnabled" Clicked="AssignRole">Assign</Button>
+				<Button Background="Background.Danger" Clicked="HideAssignRoleModal">Close</Button>
+			</ModalFooter>
+		</ModalContent>
+	</Modal>
+}
+
+@if (permissions is not null)
+{
+	<Modal @ref="createRoleModal">
+		<ModalContent Centered>
+			<ModalHeader>
+				<ModalTitle>Create new role</ModalTitle>
+				<CloseButton />
+			</ModalHeader>
+			<ModalBody>
+				<Validations @ref="createRoleValidations" StatusChanged="CreateRoleValidationChanged" ValidateOnLoad="false">
+					<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Role name"))">
+						<Field>
+							<FieldLabel>
+								Role name*
+							</FieldLabel>
+							<FieldBody>
+								<TextEdit Placeholder="Role name" @bind-Text="createRoleCommand.Name">
+									<Feedback>
+										<ValidationError></ValidationError>
+									</Feedback>
+								</TextEdit>
+							</FieldBody>
+						</Field>
+					</Validation>
+					<Field>
+						<FieldLabel>
+							Permissions
+						</FieldLabel>
+						<FieldBody>
+							<Select Multiple TValue="PermissionEnumDto" @bind-SelectedValues="selectedPermissionIds">
+								<SelectGroup Label="Team permissions">
+									@foreach (var permission in permissions.Where(permission => Enum.GetName(typeof(PermissionEnumDto), permission.Id)!.StartsWith("TEAM")))
+									{
+										<SelectItem Value="permission.Id">@permission.Name</SelectItem>
+									}
+								</SelectGroup>
+								<SelectGroup Label="Project permissions">
+									@foreach (var permission in permissions.Where(permission => Enum.GetName(typeof(PermissionEnumDto), permission.Id)!.StartsWith("PM")))
+									{
+										<SelectItem Value="permission.Id">@permission.Name</SelectItem>
+									}
+								</SelectGroup>
+								<SelectGroup Label="Chat permissions">
+									@foreach (var permission in permissions.Where(permission => Enum.GetName(typeof(PermissionEnumDto), permission.Id)!.StartsWith("CHAT")))
+									{
+										<SelectItem Value="permission.Id">@permission.Name</SelectItem>
+									}
+								</SelectGroup>
+							</Select>
+						</FieldBody>
+					</Field>
+				</Validations>
+			</ModalBody>
+			<ModalFooter>
+				<Button Background="Background.Primary" Disabled="!createRoleButtonEnabled" Clicked="CreateRole">Create</Button>
+				<Button Background="Background.Danger" Clicked="HideCreateRoleModal">Close</Button>
+			</ModalFooter>
+		</ModalContent>
+	</Modal>
+
+	<Modal @ref="editRoleModal">
+		<ModalContent Centered>
+			<ModalHeader>
+				<ModalTitle>Edit role</ModalTitle>
+				<CloseButton />
+			</ModalHeader>
+			<ModalBody>
+				<Validations @ref="editRoleValidations" StatusChanged="EditRoleValidationChanged" ValidateOnLoad="false">
+					<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Role name"))">
+						<Field>
+							<FieldLabel>
+								Name*
+							</FieldLabel>
+							<FieldBody>
+								<TextEdit @bind-Text="editRoleCommand.Name" Placeholder="Enter role name">
+									<Feedback>
+										<ValidationError></ValidationError>
+									</Feedback>
+								</TextEdit>
+							</FieldBody>
+						</Field>
+					</Validation>
+					<Field>
+						<FieldLabel>
+							Permissions
+						</FieldLabel>
+						<FieldBody>
+							<Select Multiple TValue="PermissionEnumDto" @bind-SelectedValues="selectedPermissionIds">
+								<SelectGroup Label="Team permissions">
+									@foreach (var permission in permissions.Where(permission => Enum.GetName(typeof(PermissionEnumDto), permission.Id)!.StartsWith("TEAM")))
+									{
+										<SelectItem Value="permission.Id">@permission.Name</SelectItem>
+									}
+								</SelectGroup>
+								<SelectGroup Label="Project permissions">
+									@foreach (var permission in permissions.Where(permission => Enum.GetName(typeof(PermissionEnumDto), permission.Id)!.StartsWith("PM")))
+									{
+										<SelectItem Value="permission.Id">@permission.Name</SelectItem>
+									}
+								</SelectGroup>
+								<SelectGroup Label="Chat permissions">
+									@foreach (var permission in permissions.Where(permission => Enum.GetName(typeof(PermissionEnumDto), permission.Id)!.StartsWith("CHAT")))
+									{
+										<SelectItem Value="permission.Id">@permission.Name</SelectItem>
+									}
+								</SelectGroup>
+							</Select>
+						</FieldBody>
+					</Field>
+				</Validations>
+			</ModalBody>
+			<ModalFooter>
+				<Button Background="Background.Primary" Disabled="!editRoleButtonEnabled" Clicked="EditRole">Edit</Button>
+				<Button Background="Background.Danger" Clicked="HideEditRoleModal">Close</Button>
+			</ModalFooter>
+		</ModalContent>
+	</Modal>
+}
+
+@if (team is null || members is null || roles is null || currentPermissions is null)
+{
+	<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+		<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+	</Div>
+}
+else
+{
+	@if (team is null)
+	{
+		<Heading Flex="Flex.JustifyContent.Center" Size="HeadingSize.Is2">Team ""</Heading>
+	}
+	else
+	{
+		<Div Display="Display.Flex.Row" Flex="Flex.JustifyContent.Center">
+			<div>
+				<Image Margin="Margin.Is2.FromEnd" Border="Border.Is1" Source="@(team.PictureUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + team.PictureUrl)" Class="big-avatar"></Image>
+			</div>
+			<Heading Flex="Flex.AlignSelf.Center" Size="HeadingSize.Is2">
+				Team "@team.Name"
+			</Heading>
+		</Div>
+	}
+	<Tabs SelectedTab="@selectedTab" SelectedTabChanged="SelectedTabChanged">
+		<Items>
+			<Tab Name="members">Members</Tab>
+			<Tab Name="roles">Roles</Tab>
+			<Tab Name="settings">Settings</Tab>
+		</Items>
+		<Content>
+			<TabPanel Name="members">
+				@if (members is null)
+				{
+					<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+					</Div>
+				}
+				else
+				{
+					<DataGrid TItem="TeamMemberDto" Data="members" RowSelectable=@((row) => false) Responsive Virtualize Editable>
+						<DataGridColumns>
+							<DataGridColumn Caption="User">
+								<DisplayTemplate>
+									<Div Display="Display.Flex.Row">
+										@if (context!.User.Id == team!.CreatorUserId)
+										{
+											<Icon Flex="Flex.AlignSelf.Center" Name="IconName.Star"></Icon>
+										}
+										else
+										{
+											<Div Style="width: 24px;"></Div>
+										}
+										<div>
+											<Image Margin="Margin.Is2.FromEnd" Border="Border.Is1" Source="@(context.User.ImageUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + context.User.ImageUrl)" Class="avatar"></Image>
+										</div>
+										<Div Flex="Flex.AlignSelf.Center">
+											@context.User.Name @context.User.Surname
+										</Div>
+									</Div>
+								</DisplayTemplate>
+							</DataGridColumn>
+							<DataGridColumn Field="Role.Name" Caption="Role"></DataGridColumn>
+							<DataGridCommandColumn>
+								<NewCommandTemplate>
+									@if (currentPermissions!.Contains(PermissionEnumDto.TEAM_ADD_USER) || team!.CreatorUserId == UserService.User!.Id)
+									{
+										<Button Background="Background.Primary" Clicked="ShowAddNewMemberModal">Send invite</Button>
+									}
+								</NewCommandTemplate>
+								<EditCommandTemplate>
+									@if (currentPermissions!.Contains(PermissionEnumDto.TEAM_ASSIGN_ROLE) || team!.CreatorUserId == UserService.User!.Id)
+									{
+										<Button Margin="Margin.Is2.FromEnd" Background="Background.Secondary" Clicked="() => ShowAssignRoleModal(context.Item!)">Assign role</Button>
+									}
+									@if (UserService.User!.Id == team!.CreatorUserId && context.Item!.User.Id != team.CreatorUserId)
+									{
+										<Button Margin="Margin.Is2.FromEnd" Background="Background.Secondary" Clicked="() => SetTeamCreator(context.Item!)">Set as team creator</Button>
+									}
+								</EditCommandTemplate>
+								<DeleteCommandTemplate>
+									@if ((currentPermissions!.Contains(PermissionEnumDto.TEAM_KICK_USER) || team!.CreatorUserId == UserService.User!.Id) && context.Item!.User.Id != UserService.User!.Id)
+									{
+										<Button Background="Background.Danger" Clicked="() => KickMember(context.Item.User.Id)">Kick member</Button>
+									}
+								</DeleteCommandTemplate>
+							</DataGridCommandColumn>
+						</DataGridColumns>
+					</DataGrid>
+				}
+			</TabPanel>
+			<TabPanel Name="roles">
+				@if (roles is null)
+				{
+					<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+					</Div>
+				}
+				else
+				{
+					<DataGrid TItem="RoleDto" Data="roles" RowSelectable=@((row) => false) Virtualize Responsive Editable>
+						<DataGridColumns>
+							<DataGridColumn Field="Name" Caption="Name"></DataGridColumn>
+							<DataGridCommandColumn>
+								<NewCommandTemplate>
+									@if (currentPermissions!.Contains(PermissionEnumDto.TEAM_MANAGE_ROLE))
+									{
+										<Button Background="Background.Primary" Clicked="ShowCreateRoleModal">Create new</Button>
+									}
+								</NewCommandTemplate>
+								<EditCommandTemplate>
+									@if (currentPermissions!.Contains(PermissionEnumDto.TEAM_MANAGE_ROLE))
+									{
+										<Button Margin="Margin.Is2.FromEnd" Background="Background.Secondary" Clicked="() => ShowEditRoleModal(context.Item!)">Change</Button>
+									}
+								</EditCommandTemplate>
+								<DeleteCommandTemplate>
+									@if (currentPermissions!.Contains(PermissionEnumDto.TEAM_MANAGE_ROLE))
+									{
+										@if (members is not null && !members.Select(member => member.Role.Id).Contains(context.Item!.Id))
+										{
+											<Button Background="Background.Danger" Clicked="() => DeleteRole(context.Item!.Id)">Delete</Button>
+										}
+									}
+								</DeleteCommandTemplate>
+							</DataGridCommandColumn>
+						</DataGridColumns>
+					</DataGrid>
+				}
+			</TabPanel>
+			<TabPanel Name="settings">
+				@if (team is null)
+				{
+					<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+					</Div>
+				}
+				else
+				{
+					<Div Width="Width.Is25">
+						<Validations StatusChanged="TeamEditValidationChanged">
+							<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Team name"))">
+								<Field>
+									<FieldLabel>
+										Team name*
+									</FieldLabel>
+									<FieldBody>
+										<TextEdit Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.TEAM_EDIT) && team!.CreatorUserId != UserService.User!.Id)" @bind-Text="editTeamCommand.Name" Placeholder="Enter role name">
+											<Feedback>
+												<ValidationError></ValidationError>
+											</Feedback>
+										</TextEdit>
+									</FieldBody>
+								</Field>
+							</Validation>
+							<Field>
+								<FieldLabel>
+									Image
+								</FieldLabel>
+								<FieldBody>
+									<FileEdit Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.TEAM_EDIT) && team!.CreatorUserId != UserService.User!.Id)" @ref="imagePicker" Filter=".jpg, .png"></FileEdit>
+								</FieldBody>
+							</Field>
+						</Validations>
+						<Div Flex="Flex.JustifyContent.Between">
+							@if (currentPermissions!.Contains(PermissionEnumDto.TEAM_EDIT) || team!.CreatorUserId == UserService.User!.Id)
+							{
+								<Button Margin="Margin.Is2.FromEnd" Background="Background.Primary" Disabled="!editTeamButtonEnabled" Clicked="EditTeam">Edit</Button>
+							}
+							@if (currentPermissions!.Contains(PermissionEnumDto.TEAM_DELETE) || team!.CreatorUserId == UserService.User!.Id)
+							{
+								<Button Margin="Margin.Is2.FromEnd" Background="Background.Danger" Clicked="DeleteTeam">Delete</Button>
+							}
+							<Button Background="Background.Danger" Clicked="LeaveTeam">Leave</Button>
+						</Div>
+					</Div>
+				}
+			</TabPanel>
+		</Content>
+	</Tabs>
+}
+
+@code {
+	[Parameter]
+	public long TeamId { get; set; }
+
+	Validations? createRoleValidations, editRoleValidations;
+	TeamDto? team;
+	FileEdit? imagePicker;
+	IEnumerable<UserDto>? usersToAddToTeamFiltered;
+	IEnumerable<RoleDto>? rolesFiltered;
+	bool addNewMemberButtonEnabled = false,
+	assignRoleButtonEnabled = true,
+	createRoleButtonEnabled = false,
+	editRoleButtonEnabled = true,
+	editTeamButtonEnabled = true;
+	SendJoinTeamRequestCommand addNewMemberCommand = new SendJoinTeamRequestCommand();
+	Autocomplete<UserDto, string>? addNewMemberAutocomplete;
+	Autocomplete<RoleDto, long?>? assignRoleAutocomplete;
+	List<TeamMemberDto>? members;
+	AssignTeamMemberRoleCommand assignRoleCommand = new AssignTeamMemberRoleCommand();
+	Modal? addNewMemberModal, assignRoleModal, createRoleModal, editRoleModal;
+	IReadOnlyList<PermissionEnumDto>? selectedPermissionIds { get; set; }
+	CreateTeamRoleCommand createRoleCommand = new CreateTeamRoleCommand();
+	GetTeamMembersQuery getTeamMembersQuery = new GetTeamMembersQuery();
+	GetTeamRolesQuery getTeamRolesQuery = new GetTeamRolesQuery();
+	GetUsersWithNameQuery getUsersWithNameQuery = new GetUsersWithNameQuery();
+	List<RoleDto>? roles;
+	PermissionDto[]? permissions;
+	EditTeamRoleCommand editRoleCommand = new EditTeamRoleCommand();
+	KickTeamMemberCommand kickMemberCommand = new KickTeamMemberCommand();
+	GetTeamByIdQuery getTeamQuery = new GetTeamByIdQuery();
+	EditTeamCommand editTeamCommand = new EditTeamCommand();
+	DeleteTeamRoleCommand deleteRoleCommand = new DeleteTeamRoleCommand();
+	string selectedTab = "members";
+	PermissionEnumDto[]? currentPermissions;
+
+	protected override async Task OnInitializedAsync()
+	{
+		if (TeamId < 0)
+		{
+			NavigationManager.NavigateTo("/notfound");
+		}
+		addNewMemberCommand.TeamId = TeamId;
+		assignRoleCommand.TeamId = TeamId;
+		assignRoleCommand.UserId = string.Empty;
+		assignRoleCommand.RoleId = 0;
+		createRoleCommand.TeamId = TeamId;
+		getTeamMembersQuery.TeamId = TeamId;
+		getTeamRolesQuery.TeamId = TeamId;
+		editRoleCommand.TeamId = TeamId;
+		kickMemberCommand.TeamId = TeamId;
+		getTeamQuery.TeamId = TeamId;
+		editTeamCommand.TeamId = TeamId;
+		deleteRoleCommand.TeamId = TeamId;
+		editTeamCommand.TeamId = TeamId;
+		await UpdateTeam();
+		await UpdateMembers();
+		await UpdateRoles();
+		editTeamCommand.Name = team!.Name;
+		permissions = await PermissionService.GetPermissions(new GetPermissionsQuery());
+		currentPermissions = (await TeamService.GetCurrentRole(new GetCurrentUserTeamRoleQuery() { TeamId = TeamId })).Permissions.Select(perm => perm.Id).ToArray();
+	}
+
+	async Task FindUsersToAddToTeam(AutocompleteReadDataEventArgs e)
+	{
+		if (!e.CancellationToken.IsCancellationRequested)
+		{
+			try
+			{
+				getUsersWithNameQuery.Name = e.SearchValue;
+				usersToAddToTeamFiltered = (await UserService.GetByName(getUsersWithNameQuery)).Where(candidate => !members!.Select(member => member.User.Id).Contains(candidate.Id));
+			}
+			catch (Exception)
+			{
+				if (!e.CancellationToken.IsCancellationRequested)
+					await ErrorHandler.HandleError(NotificationService);
+			}
+		}
+	}
+
+	void FindRoles(AutocompleteReadDataEventArgs e)
+	{
+		if (!e.CancellationToken.IsCancellationRequested)
+		{
+			rolesFiltered = roles!.Where(role => role.Name.ToLower().Contains(e.SearchValue.ToLower()));
+		}
+	}
+
+	void AssignRoleValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			assignRoleButtonEnabled = true;
+		else
+			assignRoleButtonEnabled = false;
+	}
+
+	void CreateRoleValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			createRoleButtonEnabled = true;
+		else
+			createRoleButtonEnabled = false;
+	}
+
+	async Task SetTeamCreator(TeamMemberDto member)
+	{
+		try
+		{
+			await TeamService.SetTeamCreator(new ChangeTeamCreatorCommand() { NewTeamCreatorUserId = member.User.Id, TeamId = TeamId });
+			await UpdateTeam();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	void EditRoleValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			editRoleButtonEnabled = true;
+		else
+			editRoleButtonEnabled = false;
+	}
+
+	async Task AddNewMember()
+	{
+		try
+		{
+			await TeamService.AddMember(addNewMemberCommand);
+			await addNewMemberModal!.Hide();
+			addNewMemberCommand.UserId = "";
+			await addNewMemberAutocomplete!.Clear();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task UpdateMembers()
+	{
+		try
+		{
+			members = (await TeamService.GetMembers(getTeamMembersQuery)).ToList();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task UpdateRoles()
+	{
+		try
+		{
+			roles = (await TeamService.GetRoles(getTeamRolesQuery)).ToList();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task UpdateTeam()
+	{
+		try
+		{
+			team = await TeamService.GetTeamById(getTeamQuery);
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task HideAddNewMemberModal() => await addNewMemberModal!.Hide();
+
+	async Task HideAssignRoleModal() => await assignRoleModal!.Hide();
+
+	async Task HideCreateRoleModal() => await createRoleModal!.Hide();
+
+	async Task HideEditRoleModal() => await editRoleModal!.Hide();
+
+	async Task AssignRole()
+	{
+		try
+		{
+			await TeamService.AssignMemberRole(assignRoleCommand);
+			members!.First(member => member.User.Id == assignRoleCommand.UserId).Role = roles!.First(role => role.Id == assignRoleCommand.RoleId);
+			await assignRoleModal!.Hide();
+			assignRoleCommand.UserId = "";
+			assignRoleCommand.RoleId = 0;
+			await assignRoleAutocomplete!.Clear();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task CreateRole()
+	{
+		try
+		{
+			createRoleCommand.PermissionIds = selectedPermissionIds is null ? new List<int>() : selectedPermissionIds.Select(id => (int)id).ToList();
+			await TeamService.CreateRole(createRoleCommand);
+			await UpdateRoles();
+			await createRoleModal!.Hide();
+			createRoleCommand.Name = "";
+			selectedPermissionIds = null;
+			await createRoleValidations!.ClearAll();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task EditRole()
+	{
+		try
+		{
+			editRoleCommand.PermissionIds = selectedPermissionIds is null ? new List<int>() : selectedPermissionIds.Select(id => (int)id).ToList();
+			await TeamService.ChangeRole(editRoleCommand);
+			roles!.First(role => role.Id == editRoleCommand.RoleId).Permissions = permissions!.Where(permission => editRoleCommand.PermissionIds.Contains((int)permission.Id)).ToList();
+			await UpdateRoles();
+			await editRoleModal!.Hide();
+			editRoleCommand.PermissionIds = new List<int>();
+			editRoleCommand.Name = "";
+			editRoleCommand.RoleId = 0;
+			await editRoleValidations!.ClearAll();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task SelectedTabChanged(string name)
+	{
+		selectedTab = name;
+		switch (name)
+		{
+			case "members":
+				await UpdateMembers();
+				break;
+			case "roles":
+				await UpdateRoles();
+				break;
+			case "settings":
+				await UpdateTeam();
+				editTeamCommand.Name = team!.Name;
+				break;
+		}
+	}
+
+	async Task ShowAddNewMemberModal() => await addNewMemberModal!.Show();
+
+	async Task KickMember(string userId)
+	{
+		try
+		{
+			kickMemberCommand.UserId = userId;
+			await TeamService.KickMember(kickMemberCommand);
+			members!.Remove(members.First(member => member.User.Id == userId));
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task ShowAssignRoleModal(TeamMemberDto member)
+	{
+		assignRoleCommand.RoleId = member.Role.Id;
+		assignRoleCommand.UserId = member.User.Id;
+		await assignRoleModal!.Show();
+	}
+
+	async Task ShowCreateRoleModal() => await createRoleModal!.Show();
+
+	async Task ShowEditRoleModal(RoleDto role)
+	{
+		editRoleCommand.Name = role.Name;
+		editRoleCommand.RoleId = role.Id;
+		selectedPermissionIds = role.Permissions.Select(permission => permission.Id).ToList();
+		await editRoleModal!.Show();
+	}
+
+	async Task DeleteRole(long roleId)
+	{
+		try
+		{
+			deleteRoleCommand.RoleId = roleId;
+			await TeamService.DeleteRole(deleteRoleCommand);
+			roles!.Remove(roles.First(role => role.Id == roleId));
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task EditTeam()
+	{
+		try
+		{
+			if (imagePicker!.Files is null || imagePicker.Files.Length == 0)
+			{
+				await TeamService.EditTeam(editTeamCommand);
+				team!.Name = editTeamCommand.Name;
+			}
+			else
+			{
+				await TeamService.EditTeam(editTeamCommand, imagePicker.Files[0]);
+				await UpdateTeam();
+			}
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task DeleteTeam()
+	{
+		try
+		{
+			await TeamService.DeleteTeam(new DeleteTeamCommand() { TeamId = TeamId });
+			NavigationManager.NavigateTo("/teams");
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task LeaveTeam()
+	{
+		try
+		{
+			await TeamService.LeaveTeam(new LeaveTeamCommand() { TeamId = TeamId });
+			NavigationManager.NavigateTo("/teams");
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	void TeamEditValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			editTeamButtonEnabled = true;
+		else
+			editTeamButtonEnabled = false;
+	}
+
+	void NewMemberIdChanged(string value)
+	{
+		addNewMemberCommand.UserId = value;
+		if (value is null)
+			addNewMemberButtonEnabled = false;
+		else
+			addNewMemberButtonEnabled = true;
+	}
+
+	void SelectedRoleChanged(long? value)
+	{
+		assignRoleCommand.RoleId = value ?? 0;
+		if (value is null)
+			assignRoleButtonEnabled = false;
+		else
+			assignRoleButtonEnabled = true;
+	}
+}

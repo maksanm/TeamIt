@@ -1,0 +1,94 @@
+﻿$create_color: lightgreen;
+$edit_color: palegoldenrod;
+$delete_color: lightpink;
+$close_color: lightpink;
+$tab_color: gray;
+$tab_active_color: black;
+$text-big: 20px;
+$text-very-big: 30px;
+
+::deep .text-very-big {
+    font-size: $text-very-big;
+}
+
+::deep .text-big {
+    font-size: $text-big;
+}
+
+::deep .button-margin {
+    margin-right: 10px;
+}
+
+/*::deep .text-big,
+::deep .text-big a,
+::deep .text-big th {
+    font-size: $text-big !important;
+}*/
+
+::deep .create-button {
+    background-color: $create_color;
+}
+
+::deep .edit-button {
+    font-size: $text-big !important;
+    background-color: $edit_color;
+}
+
+::deep .delete-button {
+    font-size: $text-big !important;
+    background-color: $delete_color;
+}
+
+::deep .close-button {
+    font-size: $text-big !important;
+    background-color: $close_color;
+}
+
+.center {
+    margin: 0;
+    height: 90%;
+    position: relative;
+}
+
+::deep .center-child {
+    width: 40%;
+    margin: 0;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin-right: -50%;
+    transform: translate(-50%, -50%);
+}
+
+::deep .tabs a {
+    font-size: $text-big !important;
+    color: $tab_color !important;
+}
+
+::deep .tabs a.active.show {
+    font-size: $text-big !important;
+    color: $tab_active_color !important;
+}
+
+::deep .tabs a.active.show:before {
+    font-size: $text-big !important;
+    background-color: $tab_active_color !important;
+}
+
+::deep .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+}
+
+::deep .medium-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+}
+
+::deep .big-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+}

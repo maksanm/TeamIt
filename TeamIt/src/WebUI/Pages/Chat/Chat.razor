@@ -1,0 +1,586 @@
+﻿@page "/chat"
+@using Microsoft.AspNetCore.SignalR.Client;
+@using Models.Chats.Commands;
+@using Models.Chats.Dto;
+@using Models.Chats.Queries;
+@using Models.Enums;
+@using Models.Messages.Commands;
+@using Models.Messages.Dto;
+@using Models.Messages.Queries;
+@using Models.Projects.Dto;
+@using Models.Teams.Dto;
+@using Models.Users.Dto;
+
+@attribute [Authorize]
+
+@implements IAsyncDisposable
+
+@inject IChatService ChatService
+@inject IUserService UserService
+@inject INotificationService NotificationService
+@inject IHttpService HttpService
+@inject HubConnection HubConnection
+
+<div>
+	<Modal @ref=createChatModal>
+		<ModalContent Centered>
+			<ModalHeader>
+				<ModalTitle>Create new chat</ModalTitle>
+				<CloseButton />
+			</ModalHeader>
+			<ModalBody>
+				<Field>
+					<FieldLabel>Chat name</FieldLabel>
+					<TextEdit @bind-Text="@createChatCommand.Name" Placeholder="Enter chat name"></TextEdit>
+				</Field>
+				<Field>
+					<FieldLabel>Context</FieldLabel>
+					<Autocomplete TItem="(string UserId, string Text, long? ProjectId, long? TeamId)"
+								  TValue="(string UserId, long? ProjectId, long? TeamId)"
+								  Data="usersToChatWithFiltered"
+								  ReadData="FindUsersToChatWith"
+								  TextField="@(user => user.Text)"
+								  ValueField="@(user => (user.UserId, user.ProjectId, user.TeamId))"
+								  @bind-SelectedValue="selectedUserToChatWith"
+								  Placeholder="Search..."
+								  FreeTyping>
+						<NotFoundContent>
+							Sorry... @context was not found!
+						</NotFoundContent>
+					</Autocomplete>
+				</Field>
+				<Field>
+					<FieldLabel>Image</FieldLabel>
+					<FileEdit @ref="imagePicker" Filter=".jpg, .png"></FileEdit>
+				</Field>
+			</ModalBody>
+			<ModalFooter>
+				<Button Background="Background.Primary" Clicked="CreateChat">Create</Button>
+				<Button Background="Background.Danger" Clicked="CloseCreateChatModal">Close</Button>
+			</ModalFooter>
+		</ModalContent>
+	</Modal>
+
+	<Modal @ref=addUserModal>
+		<ModalContent Centered>
+			<ModalHeader>
+				<ModalTitle>Add user</ModalTitle>
+				<CloseButton />
+			</ModalHeader>
+			<ModalBody>
+				<Autocomplete TItem="TeamMemberDto"
+							  TValue="string"
+							  Data="usersToAddToChatFiltered"
+							  ReadData="FindUsersToAddToChat"
+							  TextField="@(user => user.User.Name + " " + user.User.Surname + " (" + user.Role.Name + ")")"
+							  ValueField="@(user => user.User.Id)"
+							  @bind-SelectedValue="addUserCommand.UserId"
+							  Placeholder="Search..."
+							  FreeTyping>
+					<NotFoundContent>
+						Sorry... @context was not found!
+					</NotFoundContent>
+				</Autocomplete>
+			</ModalBody>
+			<ModalFooter>
+				<Button Background="Background.Primary" Clicked="AddUser">Add</Button>
+				<Button Background="Background.Danger" Clicked="CloseAddUserModal">Close</Button>
+			</ModalFooter>
+		</ModalContent>
+	</Modal>
+
+	@if (!string.IsNullOrEmpty(selectedChatId))
+	{
+		<Modal @ref=editChatModal>
+			<ModalContent Centered>
+				<ModalHeader>
+					<ModalTitle>Edit chat "@(chatsFiltered!.First(chat => chat.Id.ToString() == selectedChatId).Name)"</ModalTitle>
+					<CloseButton />
+				</ModalHeader>
+				<ModalBody>
+					<Field>
+						<FieldLabel>Chat name</FieldLabel>
+						<TextEdit @bind-Text="@editChatCommand.Name" Placeholder="Enter chat name"></TextEdit>
+					</Field>
+					<Field>
+						<FieldLabel>Image</FieldLabel>
+						<FileEdit @ref="chatImagePicker" Filter=".jpg, .png"></FileEdit>
+					</Field>
+				</ModalBody>
+				<ModalFooter>
+					<Button Background="Background.Secondary" Clicked="EditChat">Edit</Button>
+					<Button Background="Background.Danger" Clicked="CloseEditChatModal">Close</Button>
+				</ModalFooter>
+			</ModalContent>
+		</Modal>
+	}
+
+	<Heading Flex="Flex.JustifyContent.Center" Size="HeadingSize.Is2">Chats</Heading>
+
+	<Button Background="Background.Primary" Clicked="ShowCreateChatModal">Create new chat</Button>
+
+	<Row Margin="Margin.Is2.FromBottom">
+		<Column ColumnSize="ColumnSize.Is3">
+			<TextEdit Placeholder="Search" TextChanged="SearchChat"></TextEdit>
+		</Column>
+		@if (!string.IsNullOrEmpty(selectedChatId))
+		{
+			<Column Border="Border.Is1" ColumnSize="ColumnSize.Is9">
+				<Div Flex="Flex.JustifyContent.Between">
+					<Div Flex="Flex.AlignItems.Center">
+						<Heading Margin="Margin.Is0.FromBottom" Size="HeadingSize.Is6">
+							@chats!.First(chat => chat.Id.ToString() == selectedChatId).Name
+						</Heading>
+					</Div>
+					<Div Flex="Flex.AlignItems.Center">
+						<Div>
+							@if (currentPermissions is not null)
+							{
+								<Dropdown Background="Background.Danger">
+									<DropdownToggle>
+										Actions
+									</DropdownToggle>
+									<DropdownMenu Padding="Blazorise.Padding.Is0.OnY">
+										@if (currentPermissions!.Contains(PermissionEnumDto.CHAT_ADD_USER))
+										{
+											<DropdownItem Margin="Margin.Is0.OnY" Clicked="ShowAddUserModal">Add user</DropdownItem>
+											<DropdownDivider Margin="Margin.Is0.OnY"></DropdownDivider>
+										}
+										@if (currentPermissions!.Contains(PermissionEnumDto.CHAT_EDIT))
+										{
+											<DropdownItem Margin="Margin.Is0.OnY" Clicked="ShowEditChatModal">Edit</DropdownItem>
+											<DropdownDivider Margin="Margin.Is0.OnY"></DropdownDivider>
+										}
+										@if (currentPermissions!.Contains(PermissionEnumDto.CHAT_DELETE))
+										{
+											<DropdownItem Margin="Margin.Is0.OnY" Clicked="DeleteChat">Delete</DropdownItem>
+											<DropdownDivider Margin="Margin.Is0.OnY"></DropdownDivider>
+										}
+										<DropdownItem Margin="Margin.Is0.OnY" Clicked="LeaveChat">Leave</DropdownItem>
+									</DropdownMenu>
+								</Dropdown>
+							}
+						</Div>
+					</Div>
+				</Div>
+			</Column>
+		}
+	</Row>
+	<Row>
+		<Column ColumnSize="ColumnSize.Is3">
+			<ListGroup Padding="Blazorise.Padding.Is0.OnY"
+					   Overflow="Overflow.Auto"
+					   Mode="ListGroupMode.Selectable"
+					   SelectedItemChanged="SelectedChatChanged"
+					   Style="min-height: 700px; max-height: 700px;">
+				@if (chatsFiltered is not null)
+				{
+					@foreach (var chat in chatsFiltered)
+					{
+						<ListGroupItem Name="@chat.Id.ToString()">
+							<Div Flex="Flex.JustifyContent.Between" Width="Width.Is100">
+								<Div Display="Display.Flex.Row">
+									<Image Margin="Margin.Is2.FromEnd" Border="Border.Is1" Source="@(chat.PictureUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + chat.PictureUrl)" Style="width: 60px;height: 60px;border-radius: 50%;"></Image>
+									<Div Margin="Margin.Is2.FromStart" Flex="Flex.AlignSelf.Center" Display="Display.Flex.Column">
+										<Paragraph Margin="Margin.Is1.FromBottom">@chat.Name</Paragraph>
+										@if (chat.LastMessage is not null)
+										{
+											<Div>
+												@if (chat.LastMessage.PictureUrl is not null)
+												{
+													<Image Border="Border.Is3" Source="@(HttpService.ApiUrl + chat.LastMessage.PictureUrl)" Style="width: 40px; height: 40px;"></Image>
+												}
+												<Small>@chat.LastMessage.Text</Small>
+											</Div>
+										}
+									</Div>
+								</Div>
+								@if (chat.LastMessage is not null)
+								{
+									<Small Flex="Flex.AlignSelf.Center">@chat.LastMessage.Date.ToString("hh:mm dd/MM")</Small>
+								}
+							</Div>
+						</ListGroupItem>
+					}
+				}
+			</ListGroup>
+		</Column>
+		@if (string.IsNullOrEmpty(selectedChatId))
+		{
+			<Column ColumnSize="ColumnSize.Is9">
+				<Div Height="Height.Is100" Flex="Flex.JustifyContent.Center.AlignItems.Center">
+					<Heading Size="HeadingSize.Is4">Select chat</Heading>
+				</Div>
+			</Column>
+		}
+		else
+		{
+			<Column ColumnSize="ColumnSize.Is9">
+				<Div Margin="Margin.Is2.OnY"
+				 Overflow="Overflow.Auto"
+				 Display="Display.Flex.Column"
+				 Flex="Flex.AlignItems.Stretch"
+				 Style="min-height: 663px; max-height: 663px;">
+					@if (messages is not null)
+					{
+						string previousSenderId = string.Empty;
+						foreach (var message in messages)
+						{
+							if (string.IsNullOrWhiteSpace(message.SenderUserId))
+							{
+								<Div Border="Border.Rounded" Flex="Flex.AlignSelf.Center" Style="background-color: gray;">
+									<Container>
+										<Div Style="font-size: 23px">
+											@message.Text
+										</Div>
+									</Container>
+								</Div>
+							}
+							else
+							{
+								if (message.SenderUserId == UserService.User!.Id)
+								{
+									previousSenderId = message.SenderUserId;
+									<Div Margin="Margin.Is2.FromTop" Border="Border.Rounded" Flex="Flex.AlignSelf.End" Style="background-color: #e3effd;">
+										<Container Display="Display.Flex.Column">
+											@if (message.PictureUrl is not null)
+											{
+												<Image Border="Border.Is3" Source="@(HttpService.ApiUrl + message.PictureUrl)" Style="width: 170px; height: 170px"></Image>
+											}
+											<Div Style="font-size: 23px">
+												@message.Text
+											</Div>
+											<Small>@message.Date</Small>
+										</Container>
+									</Div>
+								}
+								else
+								{
+									if (string.IsNullOrEmpty(previousSenderId) || previousSenderId != message.SenderUserId)
+									{
+										previousSenderId = message.SenderUserId;
+										<Div Flex="Flex.Row">
+											<Image Margin="Margin.Is2.FromEnd" Border="Border.Is1" Source="@(members!.First(member => member.Id == message.SenderUserId).ImageUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + members!.First(member => member.Id == message.SenderUserId).ImageUrl)" Style="width: 30px;height: 30px;border-radius: 50%;"></Image>
+											<Div Margin="Margin.Is2.FromTop" Border="Border.Rounded" Flex="Flex.AlignSelf.Start" Style="background-color: #f6f6f6;">
+												<Container Display="Display.Flex.Column">
+													<Small>@members!.First(member => member.Id == message.SenderUserId).Name @members!.First(member => member.Id == message.SenderUserId).Surname</Small>
+													@if (message.PictureUrl is not null)
+													{
+														<Image Border="Border.Is1" Source="@(HttpService.ApiUrl + message.PictureUrl)" Style="width: 170px; height: 170px"></Image>
+													}
+													<Div Style="font-size: 23px">
+														@message.Text
+													</Div>
+													<Small>@message.Date</Small>
+												</Container>
+											</Div>
+										</Div>
+									}
+									else
+									{
+										<Div Margin="Margin.Is2.FromTop" Border="Border.Rounded" Flex="Flex.AlignSelf.Start.Row" Style="background-color: #f6f6f6; margin: 37px;">
+											<Container Display="Display.Flex.Column">
+												@if (message.PictureUrl is not null)
+												{
+													<Image Border="Border.Is1" Source="@(HttpService.ApiUrl + message.PictureUrl)" Style="width: 170px; height: 170px"></Image>
+												}
+												<Div Style="font-size: 23px">
+													@message.Text
+												</Div>
+												<Small>@message.Date</Small>
+											</Container>
+										</Div>
+									}
+								}
+							}
+						}
+					}
+				</Div>
+				<Div Display="Display.Flex.Row">
+					<TextEdit @onkeydown="@SendMessageEnter" Margin="Margin.Is2.FromEnd" Placeholder="Write a message..." @bind-Text="message"></TextEdit>
+					<Button Clicked="SendMessage">
+						<Icon Name="IconName.Mail"></Icon>
+					</Button>
+				</Div>
+				@if (currentPermissions is not null && currentPermissions.Contains(PermissionEnumDto.CHAT_SEND_IMAGE))
+				{
+					<FileEdit @ref="messageImagePicker" Filter=".jpg, .png"></FileEdit>
+				}
+			</Column>
+		}
+	</Row>
+</div>
+
+@code {
+	string searchChat = string.Empty;
+	string selectedChatId = string.Empty;
+	string message = string.Empty;
+	List<(string UserId, string Text, long? ProjectId, long? TeamId)> usersToChatWith = new List<(string UserId, string Text, long? ProjectId, long? TeamId)>();
+	IEnumerable<(string UserId, string Text, long? ProjectId, long? TeamId)>? usersToChatWithFiltered;
+	(string UserId, long? ProjectId, long? TeamId) selectedUserToChatWith;
+	Modal? createChatModal, addUserModal, editChatModal;
+	CreateChatCommand createChatCommand = new CreateChatCommand();
+	AddUserToChatCommand addUserCommand = new AddUserToChatCommand();
+	EditChatCommand editChatCommand = new EditChatCommand();
+	ChatInfoDto[]? chats;
+	IEnumerable<ChatInfoDto>? chatsFiltered;
+	List<MessageDto>? messages;
+	List<TeamMemberDto> usersToAddToChat = new List<TeamMemberDto>();
+	IEnumerable<TeamMemberDto>? usersToAddToChatFiltered;
+	FileEdit? imagePicker, messageImagePicker, chatImagePicker;
+	PermissionEnumDto[]? currentPermissions;
+	UserDto[]? members;
+	const string receiveMessageMethodName = "ReceiveMessage";
+
+	protected override async Task OnInitializedAsync()
+	{
+		await UpdateChats();
+		foreach (var chat in chats!)
+		{
+			await HubConnection.InvokeAsync("JoinChatGroup", chat.Id);
+		}
+		HubConnection.On<long, string?, string, string?>(receiveMessageMethodName, async (chatId, senderId, text, attachedImageUrl) =>
+		{
+			var message = new MessageDto()
+				{
+					PictureUrl = attachedImageUrl,
+					SenderUserId = senderId,
+					Text = text,
+					Date = DateTime.Now
+				};
+			var chat = chats!.First(chat => chat.Id == chatId);
+			chat.LastMessage = message;
+			if (selectedChatId == chatId.ToString())
+			{
+				messages!.Add(message);
+			}
+			else
+			{
+				await NotificationService.Info("You have new message in " + chat.Name, "Chats");
+			}
+			StateHasChanged();
+		});
+	}
+
+	async Task SendMessageEnter(KeyboardEventArgs e)
+	{
+		if (e.Code == "Enter" || e.Code == "NumpadEnter")
+			await SendMessage();
+	}
+
+	async Task ShowCreateChatModal()
+	{
+		usersToChatWith.Clear();
+		var bla = await ChatService.GetUsersToChatWith(new GetUsersToChatWithQuery());
+		foreach (var project in bla.ProjectUsers)
+		{
+			foreach (var team in project.Members)
+			{
+				foreach (var user in team.Members)
+				{
+					usersToChatWith.Add((user.User.Id, project.ProjectInfo.Name + " - " + user.User.Name + " " + user.User.Surname + " (" + user.Role.Name + ")", project.ProjectInfo.Id, null));
+				}
+			}
+		}
+		foreach (var team in bla.TeamUsers)
+		{
+			foreach (var user in team.Members)
+			{
+				usersToChatWith.Add((user.User.Id, team.TeamInfo.Name + " - " + user.User.Name + " " + user.User.Surname + " (" + user.Role.Name + ")", null, team.TeamInfo.Id));
+			}
+		}
+		usersToChatWith.Sort();
+		usersToChatWithFiltered = usersToChatWith.ToList();
+		await createChatModal!.Show();
+	}
+
+	void FindUsersToChatWith(AutocompleteReadDataEventArgs e)
+	{
+		if (!e.CancellationToken.IsCancellationRequested)
+		{
+			usersToChatWithFiltered = usersToChatWith.Where(user => user.Text.ToLower().Contains(e.SearchValue.ToLower()));
+		}
+	}
+
+	void FindUsersToAddToChat(AutocompleteReadDataEventArgs e)
+	{
+		if (!e.CancellationToken.IsCancellationRequested)
+		{
+			usersToAddToChatFiltered = usersToAddToChat.Where(user => string.Join(' ', user.User.Name, user.User.Surname, user.Role.Name).ToLower().Contains(e.SearchValue.ToLower()));
+		}
+	}
+
+	async Task CreateChat()
+	{
+		createChatCommand.ProjectId = selectedUserToChatWith.ProjectId;
+		createChatCommand.TeamId = selectedUserToChatWith.TeamId;
+		createChatCommand.UserId = selectedUserToChatWith.UserId;
+		bool projectIdCorrect = !(createChatCommand.ProjectId is null || createChatCommand.ProjectId <= 0);
+		bool teamIdCorrect = !(createChatCommand.TeamId is null || createChatCommand.TeamId <= 0);
+		if (string.IsNullOrWhiteSpace(createChatCommand.UserId) || (!projectIdCorrect && !teamIdCorrect))
+		{
+			await NotificationService.Error("Choose user to create chat with");
+			return;
+		}
+		if (projectIdCorrect && teamIdCorrect)
+		{
+			await NotificationService.Error("You can create chat in either project or team context");
+			return;
+		}
+		if (string.IsNullOrWhiteSpace(createChatCommand.Name))
+		{
+			await NotificationService.Error("Chat name must be not empty");
+			return;
+		}
+		foreach (var chat in chats!)
+		{
+			await HubConnection.InvokeAsync("LeaveChatGroup", chat.Id);
+		}
+		await ChatService.CreateChat(createChatCommand, imagePicker!.Files is null || imagePicker.Files.Length == 0 ? null : imagePicker.Files[0]);
+		await UpdateChats();
+		foreach (var chat in chats!)
+		{
+			await HubConnection.InvokeAsync("JoinChatGroup", chat.Id);
+		}
+		await createChatModal!.Hide();
+		createChatCommand = new CreateChatCommand();
+	}
+
+	async Task UpdateChats()
+	{
+		chats = await ChatService.GetChats(new GetCurrentUserChatInfosQuery());
+		SearchChat(searchChat);
+	}
+
+	async Task CloseCreateChatModal()
+	{
+		createChatCommand = new CreateChatCommand();
+		await createChatModal!.Hide();
+	}
+
+	async Task LeaveChat()
+	{
+		await ChatService.SendMessage(new SendMessageCommand() { ChatId = long.Parse(selectedChatId), Text = UserService.User!.Name + " " + UserService.User.Surname + " has been added" });
+		await ChatService.LeaveChat(new LeaveChatCommand() { ChatId = long.Parse(selectedChatId) });
+		selectedChatId = string.Empty;
+		await UpdateChats();
+	}
+
+	async Task DeleteChat()
+	{
+		await ChatService.DeleteChat(new DeleteChatCommand() { ChatId = long.Parse(selectedChatId) });
+		selectedChatId = string.Empty;
+		await UpdateChats();
+	}
+
+	async Task ShowAddUserModal()
+	{
+		addUserCommand.ChatId = long.Parse(selectedChatId);
+		await addUserModal!.Show();
+	}
+
+	async Task AddUser()
+	{
+		if (string.IsNullOrWhiteSpace(addUserCommand.UserId))
+		{
+			await NotificationService.Error("Choose user to add to chat");
+			return;
+		}
+		await ChatService.AddUser(addUserCommand);
+		var response = await ChatService.GetUsersToAddToChat(new GetUsersToAddToChatQuery() { ChatId = long.Parse(selectedChatId) });
+		usersToAddToChat = response.ProjectUsers.Count == 0 ? response.TeamUsers.First().Members : response.ProjectUsers.First().Members.SelectMany(member => member.Members).ToList();
+		await addUserModal!.Hide();
+		addUserCommand = new AddUserToChatCommand();
+	}
+
+	async Task CloseAddUserModal()
+	{
+		await addUserModal!.Hide();
+	}
+
+	async Task SelectedChatChanged(string chatId)
+	{
+		selectedChatId = chatId;
+		if (!string.IsNullOrEmpty(chatId))
+		{
+			members = (await ChatService.GetChatById(new GetChatByIdQuery() { ChatId = long.Parse(selectedChatId) })).ChatMembers.ToArray();
+			currentPermissions = (await ChatService.GetCurrentPermissions(new GetCurrentUserChatPermissionsQuery() { ChatId = long.Parse(selectedChatId) })).Select(permission => permission.Id).ToArray();
+			await UpdateMessages();
+			if (currentPermissions.Contains(PermissionEnumDto.CHAT_ADD_USER))
+			{
+				var response = await ChatService.GetUsersToAddToChat(new GetUsersToAddToChatQuery() { ChatId = long.Parse(selectedChatId) });
+				usersToAddToChat = response.ProjectUsers.Count == 0 ? response.TeamUsers.First().Members : response.ProjectUsers.First().Members.SelectMany(member => member.Members).ToList();
+			}
+		}
+	}
+
+	void SearchChat(string value)
+	{
+		searchChat = value;
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			chatsFiltered = chats!.AsEnumerable();
+		}
+		else
+		{
+			chatsFiltered = chats!.Where(chat => chat.Name.ToLower().Contains(value.ToLower()));
+		}
+	}
+
+	async Task ShowEditChatModal()
+	{
+		editChatCommand.ChatId = long.Parse(selectedChatId);
+		editChatCommand.Name = chatsFiltered!.First(chat => chat.Id.ToString() == selectedChatId).Name;
+		await editChatModal!.Show();
+	}
+
+	async Task EditChat()
+	{
+		if (string.IsNullOrWhiteSpace(editChatCommand.Name))
+		{
+			await NotificationService.Error("Chat name must be not empty");
+			return;
+		}
+		await ChatService.EditChat(editChatCommand, chatImagePicker!.Files is null || chatImagePicker.Files.Length == 0 ? null : chatImagePicker.Files[0]);
+		await ChatService.SendMessage(new SendMessageCommand() { ChatId = long.Parse(selectedChatId), Text = "Chat has been changed" });
+		await editChatModal!.Hide();
+		editChatCommand = new EditChatCommand();
+		await UpdateChats();
+	}
+
+	async Task CloseEditChatModal()
+	{
+		await editChatModal!.Hide();
+	}
+
+	async Task SendMessage()
+	{
+		if (!string.IsNullOrWhiteSpace(message) || (messageImagePicker is not null && messageImagePicker!.Files is not null && messageImagePicker.Files.Length > 0))
+		{
+			var sendMessageCommand = new SendMessageCommand()
+				{
+					ChatId = long.Parse(selectedChatId),
+					SenderUserId = UserService.User!.Id,
+					Text = string.IsNullOrWhiteSpace(message) ? "" : message
+				};
+			await ChatService.SendMessage(sendMessageCommand, (messageImagePicker is not null && messageImagePicker!.Files is not null && messageImagePicker.Files.Length > 0) ? messageImagePicker.Files[0] : null);
+			await UpdateMessages();
+			await UpdateChats();
+			message = string.Empty;
+		}
+	}
+
+	async Task UpdateMessages()
+	{
+		messages = (await ChatService.GetMessages(new GetChatMessagesQuery() { ChatId = long.Parse(selectedChatId), Limit = int.MaxValue })).ToList();
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		HubConnection.Remove(receiveMessageMethodName);
+		foreach (var chat in chats!)
+		{
+			await HubConnection.InvokeAsync("LeaveChatGroup", chat.Id);
+		}
+	}
+}

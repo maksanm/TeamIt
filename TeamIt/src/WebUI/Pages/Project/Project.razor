@@ -1,0 +1,1504 @@
+﻿@page "/projects/{projectId:long}"
+@using Models.Enums;
+@using Models.Permissions.Dto;
+@using Models.Permissions.Queries;
+@using Models.Projects.Commands;
+@using Models.Projects.Dto;
+@using Models.Projects.Queries;
+@using Models.Tasks.Commands;
+@using Models.Tasks.Dto;
+@using Models.Tasks.Queries;
+@using Models.Teams.Dto;
+@using Models.Teams.Queries;
+@using Models.Users.Dto;
+
+@attribute [Authorize]
+
+@inject IProjectService ProjectService
+@inject ITeamService TeamService
+@inject IPermissionService PermissionService
+@inject IUserService UserService
+@inject IHttpService HttpService
+@inject INotificationService NotificationService
+@inject NavigationManager NavigationManager
+
+<Modal @ref="addTeamModal">
+	<ModalContent Centered>
+		<ModalHeader>
+			<ModalTitle>Add team</ModalTitle>
+			<CloseButton />
+		</ModalHeader>
+		<ModalBody>
+			<Field>
+				<FieldLabel>
+					Team*
+				</FieldLabel>
+				<FieldBody>
+					<Autocomplete @ref="addTeamAutocomplete"
+								  TItem="TeamDto"
+								  TValue="long?"
+								  Data="teamsFiltered"
+								  ReadData="FindTeams"
+								  TextField="team => team.Name"
+								  ValueField="team => team.Id"
+								  SelectedValueChanged="TeamIdChanged"
+								  Placeholder="Search...">
+						<NotFoundContent>
+							Sorry... @context was not found!
+						</NotFoundContent>
+					</Autocomplete>
+				</FieldBody>
+			</Field>
+		</ModalBody>
+		<ModalFooter>
+			<Button Background="Background.Primary" Disabled="!addTeamButtonEnabled" Clicked="AddTeam">Add</Button>
+			<Button Background="Background.Danger" Clicked="HideAddTeamModal">Close</Button>
+		</ModalFooter>
+	</ModalContent>
+</Modal>
+
+<Modal @ref="createTaskModal">
+	<ModalContent Centered>
+		<ModalHeader>
+			<ModalTitle>Create new task</ModalTitle>
+			<CloseButton />
+		</ModalHeader>
+		<ModalBody>
+			<Validations @ref="createTaskValidations" StatusChanged="CreateTaskValidationChanged" ValidateOnLoad="false">
+				<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Task name"))">
+					<Field>
+						<FieldLabel>
+							Task name*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit @bind-Text="@createTaskCommand.Name" Placeholder="Enter task name">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+			</Validations>
+			<Field>
+				<FieldLabel>
+					Task description
+				</FieldLabel>
+				<FieldBody>
+					<TextEdit @bind-Text="@createTaskCommand.Description" Placeholder="Enter task description">
+						<Feedback>
+							<ValidationError></ValidationError>
+						</Feedback>
+					</TextEdit>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Assignee
+				</FieldLabel>
+				<FieldBody>
+					<Autocomplete @ref="assigneeAutocomplete"
+								  TItem="UserDto"
+								  TValue="string"
+								  Data="usersFiltered"
+								  ReadData="FindUsers"
+								  TextField="@(user => user.Name + " " + user.Surname)"
+								  ValueField="user => user.Id"
+								  SelectedValueChanged="SelectedUserChanged"
+								  Placeholder="Search...">
+						<NotFoundContent>
+							Sorry... @context was not found!
+						</NotFoundContent>
+					</Autocomplete>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Start date
+				</FieldLabel>
+				<FieldBody>
+					<Addons>
+						<Addon AddonType="AddonType.Body">
+							<DatePicker Margin="Margin.Is0.FromStart" @ref="startDatePicker" InputMode="DateInputMode.DateTime" TimeAs24hr TValue="DateTime?" @bind-Date="createTaskCommand.StartDate"></DatePicker>
+						</Addon>
+						<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+							<Button Clicked="() => startDatePicker!.ToggleAsync()">
+								<Icon Name="IconName.CalendarDay"></Icon>
+							</Button>
+						</Addon>
+					</Addons>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Deadline
+				</FieldLabel>
+				<FieldBody>
+					<Addons>
+						<Addon AddonType="AddonType.Body">
+							<DatePicker Margin="Margin.Is0.FromStart" @ref="deadlinePicker" Min="!createTaskCommand.StartDate.HasValue ? DateTimeOffset.Now : DateTimeOffset.Compare(createTaskCommand.StartDate!.Value, DateTimeOffset.Now) > 0 ? createTaskCommand.StartDate!.Value : DateTimeOffset.Now" TimeAs24hr InputMode="DateInputMode.DateTime" TValue="DateTime?" @bind-Date="createTaskCommand.DeadLine"></DatePicker>
+						</Addon>
+						<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+							<Button Clicked="() => deadlinePicker!.ToggleAsync()">
+								<Icon Name="IconName.CalendarDay"></Icon>
+							</Button>
+						</Addon>
+					</Addons>
+				</FieldBody>
+			</Field>
+		</ModalBody>
+		<ModalFooter>
+			<Button Background="Background.Primary" Disabled="!createTaskButtonEnabled" Clicked="CreateTask">Create</Button>
+			<Button Background="Background.Danger" Clicked="HideCreateTaskModal">Close</Button>
+		</ModalFooter>
+	</ModalContent>
+</Modal>
+
+<Modal @ref="createSubtaskModal">
+	<ModalContent Centered>
+		<ModalHeader>
+			<ModalTitle>Create new subtask</ModalTitle>
+			<CloseButton />
+		</ModalHeader>
+		<ModalBody>
+			<Validations @ref="createSubtaskValidations" StatusChanged="CreateSubtaskValidationChanged" ValidateOnLoad="false">
+				<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Task name"))">
+					<Field>
+						<FieldLabel>
+							Task name*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit @bind-Text="@createSubtaskCommand.Name" Placeholder="Enter task name">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+			</Validations>
+			<Field>
+				<FieldLabel>
+					Task description
+				</FieldLabel>
+				<FieldBody>
+					<TextEdit @bind-Text="@createSubtaskCommand.Description" Placeholder="Enter task description">
+						<Feedback>
+							<ValidationError></ValidationError>
+						</Feedback>
+					</TextEdit>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Assignee
+				</FieldLabel>
+				<FieldBody>
+					<Autocomplete @ref="assigneeSubtaskAutocomplete"
+								  TItem="UserDto"
+								  TValue="string"
+								  Data="usersFiltered"
+								  ReadData="FindUsers"
+								  TextField="user => user.Name"
+								  ValueField="user => user.Id"
+								  SelectedValueChanged="SelectedSubtaskUserChanged"
+								  Placeholder="Search...">
+						<NotFoundContent>
+							Sorry... @context was not found!
+						</NotFoundContent>
+					</Autocomplete>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Start date
+				</FieldLabel>
+				<FieldBody>
+					<Addons>
+						<Addon AddonType="AddonType.Body">
+							<DatePicker Margin="Margin.Is0.FromStart" @ref="startDateSubtaskPicker" InputMode="DateInputMode.DateTime" TimeAs24hr TValue="DateTime?" @bind-Date="createSubtaskCommand.StartDate"></DatePicker>
+						</Addon>
+						<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+							<Button Clicked="() => startDateSubtaskPicker!.ToggleAsync()">
+								<Icon Name="IconName.CalendarDay"></Icon>
+							</Button>
+						</Addon>
+					</Addons>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Deadline
+				</FieldLabel>
+				<FieldBody>
+					<Addons>
+						<Addon AddonType="AddonType.Body">
+							<DatePicker Margin="Margin.Is0.FromStart" @ref="deadlineSubtaskPicker" Min="!createSubtaskCommand.StartDate.HasValue ? DateTimeOffset.Now : DateTimeOffset.Compare(createSubtaskCommand.StartDate!.Value, DateTimeOffset.Now) > 0 ? createSubtaskCommand.StartDate!.Value : DateTimeOffset.Now" TimeAs24hr InputMode="DateInputMode.DateTime" TValue="DateTime?" @bind-Date="createSubtaskCommand.DeadLine"></DatePicker>
+						</Addon>
+						<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+							<Button Clicked="() => deadlineSubtaskPicker!.ToggleAsync()">
+								<Icon Name="IconName.CalendarDay"></Icon>
+							</Button>
+						</Addon>
+					</Addons>
+				</FieldBody>
+			</Field>
+		</ModalBody>
+		<ModalFooter>
+			<Button Background="Background.Primary" Disabled="!createSubtaskButtonEnabled" Clicked="CreateSubtask">Create</Button>
+			<Button Background="Background.Danger" Clicked="HideCreateSubtaskModal">Close</Button>
+		</ModalFooter>
+	</ModalContent>
+</Modal>
+
+<Modal @ref="editTaskModal">
+	<ModalContent Size="ModalSize.Large" Centered>
+		<ModalHeader>
+			<ModalTitle>Edit task</ModalTitle>
+			<CloseButton />
+		</ModalHeader>
+		<ModalBody>
+			<Validations @ref="editTaskValidations" StatusChanged="EditTaskValidationChanged" ValidateOnLoad="false">
+				<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Task name"))">
+					<Field>
+						<FieldLabel>
+							Task name*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit @bind-Text="@editTaskCommand.Name" Placeholder="Enter task name">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+			</Validations>
+			<Field>
+				<FieldLabel>
+					Task description
+				</FieldLabel>
+				<FieldBody>
+					<TextEdit @bind-Text="@editTaskCommand.Description" Placeholder="Enter task description">
+						<Feedback>
+							<ValidationError></ValidationError>
+						</Feedback>
+					</TextEdit>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Assignee
+				</FieldLabel>
+				<FieldBody>
+					<Autocomplete @ref="assigneeChangeAutocomplete"
+								  TItem="UserDto"
+								  TValue="string"
+								  Data="usersFiltered"
+								  ReadData="FindUsers"
+								  TextField="user => user.Name"
+								  ValueField="user => user.Id"
+								  SelectedValueChanged="SelectedChangeUserChanged"
+								  Placeholder="Search...">
+						<NotFoundContent>
+							Sorry... @context was not found!
+						</NotFoundContent>
+					</Autocomplete>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Start date
+				</FieldLabel>
+				<FieldBody>
+					<Addons>
+						<Addon AddonType="AddonType.Body">
+							<DatePicker Margin="Margin.Is0.FromStart" @ref="startDateChangedPicker" InputMode="DateInputMode.DateTime" TimeAs24hr TValue="DateTime?" @bind-Date="editTaskCommand.StartDate"></DatePicker>
+						</Addon>
+						<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+							<Button Clicked="() => startDateChangedPicker!.ToggleAsync()">
+								<Icon Name="IconName.CalendarDay"></Icon>
+							</Button>
+						</Addon>
+					</Addons>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Deadline
+				</FieldLabel>
+				<FieldBody>
+					<Addons>
+						<Addon AddonType="AddonType.Body">
+							<DatePicker Margin="Margin.Is0.FromStart" @ref="deadlineChangedPicker" Min="!editTaskCommand.StartDate.HasValue ? DateTimeOffset.Now : DateTimeOffset.Compare(editTaskCommand.StartDate!.Value, DateTimeOffset.Now) > 0 ? editTaskCommand.StartDate!.Value : DateTimeOffset.Now" TimeAs24hr InputMode="DateInputMode.DateTime" TValue="DateTime?" @bind-Date="editTaskCommand.DeadLine"></DatePicker>
+						</Addon>
+						<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+							<Button Clicked="() => deadlineChangedPicker!.ToggleAsync()">
+								<Icon Name="IconName.CalendarDay"></Icon>
+							</Button>
+						</Addon>
+					</Addons>
+				</FieldBody>
+			</Field>
+			@if (taskShowMode != TaskShowMode.OnlySubtasks && editTaskCommand.TaskId > 0)
+			{
+				@if (tasks!.FirstOrDefault(task => task.Id == editTaskCommand.TaskId) is not null && tasks!.First(task => task.Id == editTaskCommand.TaskId).Subtasks.Count > 0)
+				{
+					<Div Style="max-height: 200px" Overflow="Overflow.Auto">
+						<DataGrid Style="max-height: 200px" TItem="TaskDto" Data="tasks!.First(task => task.Id == editTaskCommand.TaskId).Subtasks" Responsive Virtualize Editable>
+							<DataGridColumns>
+								<DataGridColumn Field="Name" Caption="Name"></DataGridColumn>
+								<DataGridColumn Field="Description" Caption="Description"></DataGridColumn>
+								<DataGridColumn Field="StartDate" Caption="Start date">
+									<DisplayTemplate>
+										@if (context!.StartDate is null)
+										{
+											@("No start date")
+										}
+										else
+										{
+											@(context.StartDate.Value.ToString("dd/MM/yyyy HH:mm"))
+										}
+									</DisplayTemplate>
+								</DataGridColumn>
+								<DataGridColumn Field="DeadLine" Caption="Deadline">
+									<DisplayTemplate>
+										@if (context!.DeadLine is null)
+										{
+											@("No deadline")
+										}
+										else
+										{
+											@(context.DeadLine.Value.ToString("dd/MM/yyyy HH:mm"))
+										}
+									</DisplayTemplate>
+								</DataGridColumn>
+								<DataGridColumn Caption="Assignee">
+									<DisplayTemplate>
+										@if (context!.AssignedUser is null)
+										{
+											@("No assignee")
+										}
+										else
+										{
+											@(context.AssignedUser.Name + " " + context.AssignedUser.Surname)
+										}
+									</DisplayTemplate>
+								</DataGridColumn>
+								<DataGridCommandColumn>
+									<NewCommandTemplate>
+										@if (currentPermissions!.Contains(PermissionEnumDto.PM_CREATE_SUBTASK))
+										{
+											<Button Background="Background.Primary" Clicked="ShowCreateSubtaskModal">Create new subtask</Button>
+										}
+									</NewCommandTemplate>
+									<EditCommandTemplate>
+										@if (currentPermissions!.Contains(PermissionEnumDto.PM_EDIT_TASK))
+										{
+											<Button Margin="Margin.Is2.FromEnd" Background="Background.Secondary" Clicked="() => ShowEditSubtaskModal(context.Item!)">Change</Button>
+										}
+									</EditCommandTemplate>
+									<DeleteCommandTemplate>
+										@if (currentPermissions!.Contains(PermissionEnumDto.PM_DELETE_TASK))
+										{
+											<Button Margin="Margin.Is2.FromEnd" Background="Background.Danger" Clicked="() => DeleteTask(context.Item!)">Delete</Button>
+										}
+									</DeleteCommandTemplate>
+								</DataGridCommandColumn>
+							</DataGridColumns>
+						</DataGrid>
+					</Div>
+				}
+				else
+				{
+					@if (currentPermissions!.Contains(PermissionEnumDto.PM_CREATE_SUBTASK))
+					{
+						<Button Background="Background.Primary" Clicked="ShowCreateSubtaskModal">Create new subtask</Button>
+					}
+				}
+			}
+			else
+			{
+				<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+					<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+				</Div>
+			}
+		</ModalBody>
+		<ModalFooter>
+			<Button Background="Background.Primary" Disabled="!editTaskButtonEnabled" Clicked="EditTask">Edit</Button>
+			<Button Background="Background.Danger" Clicked="HideEditTaskModal">Close</Button>
+		</ModalFooter>
+	</ModalContent>
+</Modal>
+
+<Modal @ref="editSubtaskModal">
+	<ModalContent Centered>
+		<ModalHeader>
+			<ModalTitle>Edit subtask</ModalTitle>
+			<CloseButton />
+		</ModalHeader>
+		<ModalBody>
+			<Validations @ref="editSubtaskValidations" StatusChanged="EditSubtaskValidationChanged" ValidateOnLoad="false">
+				<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Task name"))">
+					<Field>
+						<FieldLabel>
+							Task name*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit @bind-Text="@editSubtaskCommand.Name" Placeholder="Enter task name">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+			</Validations>
+			<Field>
+				<FieldLabel>
+					Task description
+				</FieldLabel>
+				<FieldBody>
+					<TextEdit @bind-Text="@editSubtaskCommand.Description" Placeholder="Enter task description">
+						<Feedback>
+							<ValidationError></ValidationError>
+						</Feedback>
+					</TextEdit>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Assignee
+				</FieldLabel>
+				<FieldBody>
+					<Autocomplete @ref="assigneeSubtaskChangeAutocomplete"
+								  TItem="UserDto"
+								  TValue="string"
+								  Data="usersFiltered"
+								  ReadData="FindUsers"
+								  TextField="user => user.Name"
+								  ValueField="user => user.Id"
+								  SelectedValueChanged="SelectedSubtaskChangeUserChanged"
+								  Placeholder="Search...">
+						<NotFoundContent>
+							Sorry... @context was not found!
+						</NotFoundContent>
+					</Autocomplete>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Start date
+				</FieldLabel>
+				<FieldBody>
+					<Addons>
+						<Addon AddonType="AddonType.Body">
+							<DatePicker Margin="Margin.Is0.FromStart" @ref="startDateSubtaskChangedPicker" InputMode="DateInputMode.DateTime" TimeAs24hr TValue="DateTime?" @bind-Date="editSubtaskCommand.StartDate"></DatePicker>
+						</Addon>
+						<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+							<Button Clicked="() => startDateSubtaskChangedPicker!.ToggleAsync()">
+								<Icon Name="IconName.CalendarDay"></Icon>
+							</Button>
+						</Addon>
+					</Addons>
+				</FieldBody>
+			</Field>
+			<Field>
+				<FieldLabel>
+					Deadline
+				</FieldLabel>
+				<FieldBody>
+					<Addons>
+						<Addon AddonType="AddonType.Body">
+							<DatePicker Margin="Margin.Is0.FromStart" @ref="deadlineSubtaskChangedPicker" Min="!editSubtaskCommand.StartDate.HasValue ? DateTimeOffset.Now : DateTimeOffset.Compare(editSubtaskCommand.StartDate!.Value, DateTimeOffset.Now) > 0 ? editSubtaskCommand.StartDate!.Value : DateTimeOffset.Now" TimeAs24hr InputMode="DateInputMode.DateTime" TValue="DateTime?" @bind-Date="editSubtaskCommand.DeadLine"></DatePicker>
+						</Addon>
+						<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+							<Button Clicked="() => deadlineSubtaskChangedPicker!.ToggleAsync()">
+								<Icon Name="IconName.CalendarDay"></Icon>
+							</Button>
+						</Addon>
+					</Addons>
+				</FieldBody>
+			</Field>
+		</ModalBody>
+		<ModalFooter>
+			<Button Background="Background.Primary" Disabled="!editSubtaskButtonEnabled" Clicked="EditSubtask">Edit</Button>
+			<Button Background="Background.Danger" Clicked="HideEditSubtaskModal">Close</Button>
+		</ModalFooter>
+	</ModalContent>
+</Modal>
+
+@if (firstLoad)
+{
+	<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+		<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+	</Div>
+}
+else
+{
+	@if (project is null)
+	{
+		<Heading Flex="Flex.JustifyContent.Center" Size="HeadingSize.Is2">Project ""</Heading>
+	}
+	else
+	{
+		<Div Display="Display.Flex.Row" Flex="Flex.JustifyContent.Center">
+			<div>
+				<Image Margin="Margin.Is2.FromEnd" Border="Border.Is1" Source="@(project.PictureUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + project.PictureUrl)" Class="big-avatar"></Image>
+			</div>
+			<Heading Flex="Flex.AlignSelf.Center" Size="HeadingSize.Is2">
+				Project "@project.Name"
+			</Heading>
+		</Div>
+	}
+	<Tabs SelectedTab="@selectedTab" SelectedTabChanged="OnSelectedTabChanged">
+		<Items>
+			<Tab Name="kanban">Kanban board</Tab>
+			<Tab Name="calendar">Calendar</Tab>
+			<Tab Name="members">Members</Tab>
+			<Tab Name="settings">Settings</Tab>
+		</Items>
+		<Content>
+			<TabPanel Name="kanban">
+				@if (kanbanItems is null)
+				{
+					<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+					</Div>
+				}
+				else if (kanbanItems.Count() == 0)
+				{
+					<Select Width="Width.Is25" SelectedValue="taskShowMode" SelectedValueChanged="TaskShowModeChanged" TValue="TaskShowMode">
+						<SelectItem Value="TaskShowMode.OnlyTasks">Show only tasks</SelectItem>
+						<SelectItem Value="TaskShowMode.OnlySubtasks">Show only subtasks</SelectItem>
+						<SelectItem Value="TaskShowMode.All">Show all</SelectItem>
+					</Select>
+					<Div Display="Display.Flex.Column" Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">There are no tasks</Heading>
+						@if (currentPermissions!.Contains(PermissionEnumDto.PM_CREATE_TASK))
+						{
+							<Button Background="Background.Primary" Margin="Margin.Is2.FromTop" Clicked="ShowCreateTaskModal">Create new task</Button>
+						}
+					</Div>
+				}
+				else
+				{
+					@if (currentPermissions!.Contains(PermissionEnumDto.PM_CREATE_TASK))
+					{
+						<Div Flex="Flex.JustifyContent.Between">
+							<Select Width="Width.Is25" SelectedValue="taskShowMode" SelectedValueChanged="TaskShowModeChanged" TValue="TaskShowMode">
+								<SelectItem Value="TaskShowMode.OnlyTasks">Show only tasks</SelectItem>
+								<SelectItem Value="TaskShowMode.OnlySubtasks">Show only subtasks</SelectItem>
+								<SelectItem Value="TaskShowMode.All">Show all</SelectItem>
+							</Select>
+							<Button Background="Background.Primary" Margin="Margin.Is2.FromTop" Clicked="ShowCreateTaskModal">Create new task</Button>
+						</Div>
+					}
+					<DropContainer @ref="kanban" Flex="Flex.Wrap.Grow.Is1" TItem="TaskDto" Items="kanbanItems" ItemDropped="ChangeStatus" ItemsFilter="(task, dropZone) => ConvertStatus(task.State) == dropZone">
+						<ChildContent>
+							<DropZone TItem="TaskDto" Name="@BACKLOG" Padding="Blazorise.Padding.Is3" Margin="Margin.Is3" Background="Background.Light" Flex="Flex.Grow.Is1">
+								Backlog
+							</DropZone>
+							<DropZone TItem="TaskDto" Name="@TODO" Padding="Blazorise.Padding.Is3" Margin="Margin.Is3" Background="Background.Light" Flex="Flex.Grow.Is1">
+								To do
+							</DropZone>
+							<DropZone TItem="TaskDto" Name="@IN_PROGRESS" Padding="Blazorise.Padding.Is3" Margin="Margin.Is3" Background="Background.Light" Flex="Flex.Grow.Is1">
+								In progress
+							</DropZone>
+							<DropZone TItem="TaskDto" Name="@REVIEW" Padding="Blazorise.Padding.Is3" Margin="Margin.Is3" Background="Background.Light" Flex="Flex.Grow.Is1">
+								Review
+							</DropZone>
+							<DropZone TItem="TaskDto" Name="@DONE" Padding="Blazorise.Padding.Is3" Margin="Margin.Is3" Background="Background.Light" Flex="Flex.Grow.Is1">
+								Done
+							</DropZone>
+						</ChildContent>
+						<ItemTemplate>
+							@{
+								bool isSubtask = taskShowMode == TaskShowMode.OnlySubtasks || (taskShowMode == TaskShowMode.All && kanbanItems.SelectMany(task => task.Subtasks).Contains(context));
+								<Card Background="isSubtask ? Background.Info : Background.Success" Margin="Margin.Is2.FromTop">
+									<CardHeader>
+										@context.Name
+									</CardHeader>
+									<CardBody Display="Display.Flex.Column">
+										<Div>
+											@(context.AssignedUser is null ? "No assignee" : "Assigned to:" + context.AssignedUser.Name + " " + context.AssignedUser.Surname)
+										</Div>
+										<Div>
+											@(context.StartDate is null ? "No start date" : "Start date: " + context.StartDate.Value.ToString("dd/MM/yyyy HH:mm"))
+										</Div>
+										<Div>
+											@(context.DeadLine is null ? "No deadline" : "Deadline: " + context.DeadLine.Value.ToString("dd/MM/yyyy HH:mm"))
+										</Div>
+										<Div>
+											Subtasks:
+										</Div>
+										@if (context.Subtasks.Count > 0)
+										{
+											@foreach (var subtask in context.Subtasks.Take(4))
+											{
+												<Div>
+													&emsp;- @subtask.Name
+												</Div>
+											}
+											@if (context.Subtasks.Count > 4)
+											{
+												<Div>
+													&emsp;...
+												</Div>
+											}
+										}
+									</CardBody>
+									<CardFooter>
+										@if (isSubtask)
+										{
+											@if (currentPermissions!.Contains(PermissionEnumDto.PM_EDIT_TASK))
+											{
+												<Button Background="Background.Secondary" Clicked="() => ShowEditJustSubtaskModal(context)">Edit</Button>
+											}
+											@if (currentPermissions!.Contains(PermissionEnumDto.PM_DELETE_TASK))
+											{
+												<Button Margin="Margin.Is2.FromStart" Background="Background.Danger" Clicked="() => DeleteTask(context)">Delete</Button>
+											}
+										}
+										else
+										{
+											@if (currentPermissions!.Contains(PermissionEnumDto.PM_EDIT_TASK))
+											{
+												<Button Background="Background.Secondary" Clicked="() => ShowEditTaskModal(context)">Edit</Button>
+											}
+											@if (currentPermissions!.Contains(PermissionEnumDto.PM_DELETE_TASK))
+											{
+												<Button Margin="Margin.Is2.FromStart" Background="Background.Danger" Clicked="() => DeleteTask(context)">Delete</Button>
+											}
+										}
+									</CardFooter>
+								</Card>
+							}
+						</ItemTemplate>
+					</DropContainer>
+				}
+			</TabPanel>
+			<TabPanel Name="calendar">
+				<Select Width="Width.Is25" SelectedValue="taskShowMode" SelectedValueChanged="TaskShowModeChanged" TValue="TaskShowMode">
+					<SelectItem Value="TaskShowMode.OnlyTasks">Show only tasks</SelectItem>
+					<SelectItem Value="TaskShowMode.OnlySubtasks">Show only subtasks</SelectItem>
+					<SelectItem Value="TaskShowMode.All">Show all</SelectItem>
+				</Select>
+				<ApexChart @ref="calendar" Height="400" TItem="TaskCalendarItem" Options="options" XAxisType="XAxisType.Datetime">
+					<ApexRangeSeries TItem="TaskCalendarItem" PointColor="e => e.Color"
+								 Items="calendarItems"
+								 XValue="e => e.Name"
+								 YMinValue="e => e.StartDate.ToUnixTimeMilliseconds()"
+								 YMaxValue="e => e.DeadLine.ToUnixTimeMilliseconds()"></ApexRangeSeries>
+				</ApexChart>
+			</TabPanel>
+			<TabPanel Name="members">
+				@if (members is not null)
+				{
+					<DataGrid @bind-SelectedRow="@selectedTeam" TItem="TeamMembersDto" Data="members.Members" DetailRowTrigger="e => e.Item.TeamInfo.Id == selectedTeam?.TeamInfo.Id" Responsive Virtualize Editable>
+						<DataGridColumns>
+							<DataGridColumn Field="TeamInfo.Name" Caption="Team name">
+								<DisplayTemplate>
+									<Div Display="Display.Flex.Row">
+										@if (project!.CreatorTeamId == context!.TeamInfo.Id)
+										{
+											<Icon Flex="Flex.AlignSelf.Center" Name="IconName.Star"></Icon>
+										}
+										else
+										{
+											<Div Style="width: 24px;"></Div>
+										}
+										<div>
+											<Image Margin="Margin.Is2.FromEnd" Border="Border.Is1" Source="@(context.TeamInfo.PictureUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + context.TeamInfo.PictureUrl)" Class="avatar"></Image>
+										</div>
+										<Div Flex="Flex.AlignSelf.Center">
+											@context.TeamInfo.Name
+										</Div>
+									</Div>
+								</DisplayTemplate>
+							</DataGridColumn>
+							<DataGridCommandColumn>
+								<NewCommandTemplate>
+									@if (currentPermissions!.Contains(PermissionEnumDto.PM_ADD_TEAM))
+									{
+										<Button Background="Background.Primary" Clicked="ShowAddTeamModal">Add team</Button>
+									}
+								</NewCommandTemplate>
+								<EditCommandTemplate></EditCommandTemplate>
+								<DeleteCommandTemplate>
+									@if (currentPermissions!.Contains(PermissionEnumDto.PM_KICK_TEAM) && context.Item!.TeamInfo.Id != project?.CreatorTeamId)
+									{
+										<Button Background="Background.Danger" Clicked="() => KickTeam(context.Item.TeamInfo.Id)">Kick team</Button>
+									}
+								</DeleteCommandTemplate>
+							</DataGridCommandColumn>
+						</DataGridColumns>
+						<DetailRowTemplate>
+							<DataGrid TItem="TeamMemberDto" Data="context.Members" RowSelectable="(row) => false">
+								<DataGridColumns>
+									<DataGridColumn Caption="User">
+										<DisplayTemplate Context="subcontext">
+											<Div Display="Display.Flex.Row">
+												@if (subcontext!.User.Id == context!.TeamInfo.CreatorUserId)
+												{
+													<Icon Flex="Flex.AlignSelf.Center" Name="IconName.Star"></Icon>
+												}
+												else
+												{
+													<Div Style="width: 24px;"></Div>
+												}
+												<div>
+													<Image Margin="Margin.Is2.FromEnd" Border="Border.Is1" Source="@(subcontext.User.ImageUrl is null ? "images/user_avatar.png" : HttpService.ApiUrl + subcontext.User.ImageUrl)" Class="avatar"></Image>
+												</div>
+												<Div Flex="Flex.AlignSelf.Center">
+													@subcontext.User.Name @subcontext.User.Surname
+												</Div>
+											</Div>
+										</DisplayTemplate>
+									</DataGridColumn>
+									<DataGridColumn Field="Role.Name" Caption="Role"></DataGridColumn>
+								</DataGridColumns>
+							</DataGrid>
+						</DetailRowTemplate>
+					</DataGrid>
+				}
+				else
+				{
+					<Div Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+						<Heading Size="HeadingSize.Is4">Please wait...</Heading>
+					</Div>
+				}
+			</TabPanel>
+			<TabPanel Name="settings">
+				<Div Display="Display.Flex.Row">
+					<Div Height="Height.Is25" Style="width: 33%">
+						<Validations StatusChanged="ProjectEditValidationChanged">
+							<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Project name"))">
+								<Field>
+									<FieldLabel>
+										Project name*
+									</FieldLabel>
+									<FieldBody>
+										<TextEdit Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.PM_EDIT))" @bind-Text="editProjectCommand.Name" Placeholder="Enter project name">
+											<Feedback>
+												<ValidationError></ValidationError>
+											</Feedback>
+										</TextEdit>
+									</FieldBody>
+								</Field>
+							</Validation>
+						</Validations>
+						<Field>
+							<FieldLabel>
+								Project description
+							</FieldLabel>
+							<FieldBody>
+								<TextEdit Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.PM_EDIT))" @bind-Text="editProjectCommand.Description" Placeholder="Enter project description">
+									<Feedback>
+										<ValidationError></ValidationError>
+									</Feedback>
+								</TextEdit>
+							</FieldBody>
+						</Field>
+						<Field>
+							<FieldLabel>
+								Image
+							</FieldLabel>
+							<FieldBody>
+								<FileEdit Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.TEAM_EDIT))" @ref="imagePicker" Filter=".jpg, .png"></FileEdit>
+							</FieldBody>
+						</Field>
+					</Div>
+					<Div Height="Height.Is25" Margin="Margin.Is3.OnX" Style="width: 33%">
+						<Validations StatusChanged="ProjectEditValidationChanged">
+							<Validation Validator="@(e => Validator.IsNotNullOrWhiteSpace(e, "Limit role name"))">
+								<Field>
+									<FieldLabel>
+										Limit role name*
+									</FieldLabel>
+									<FieldBody>
+										<TextEdit Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.PM_EDIT))" @bind-Text="setLimitRoleCommand.Name" Placeholder="Enter project name">
+											<Feedback>
+												<ValidationError></ValidationError>
+											</Feedback>
+										</TextEdit>
+									</FieldBody>
+								</Field>
+							</Validation>
+						</Validations>
+						<Select Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.PM_EDIT))" MaxVisibleItems="3" Multiple TValue="PermissionEnumDto" @bind-SelectedValues="selectedPermissionIds">
+							@foreach (var permission in permissions!.Where(permission => Enum.GetName(typeof(PermissionEnumDto), permission.Id)!.StartsWith("PM")))
+							{
+								<SelectItem Value="permission.Id">@permission.Name</SelectItem>
+							}
+						</Select>
+						<Field Margin="Margin.Is1.FromStart" Horizontal>
+							<FieldLabel Margin="Margin.Is2.FromEnd">
+								Use own hierarchy
+							</FieldLabel>
+							<FieldBody Flex="Flex.AlignSelf.Center">
+								<Check Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.PM_EDIT))" TValue="bool" @bind-Checked="setLimitRoleCommand.UseOwnHierarchy"></Check>
+							</FieldBody>
+						</Field>
+					</Div>
+					<Div Height="Height.Is25" Style="width: 33%">
+						<Field>
+							<FieldLabel>
+								Start date
+							</FieldLabel>
+							<FieldBody>
+								<Addons>
+									<Addon AddonType="AddonType.Body">
+										<DatePicker Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.PM_EDIT))" Margin="Margin.Is0.FromStart" @ref="startDateProjectPicker" InputMode="DateInputMode.DateTime" TimeAs24hr TValue="DateTime?" @bind-Date="editProjectCommand.StartDate"></DatePicker>
+									</Addon>
+									<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+										<Button Clicked="() => startDateProjectPicker!.ToggleAsync()">
+											<Icon Name="IconName.CalendarDay"></Icon>
+										</Button>
+									</Addon>
+								</Addons>
+							</FieldBody>
+						</Field>
+						<Field>
+							<FieldLabel>
+								Deadline
+							</FieldLabel>
+							<FieldBody>
+								<Addons>
+									<Addon AddonType="AddonType.Body">
+										<DatePicker Disabled="@(!currentPermissions!.Contains(PermissionEnumDto.PM_EDIT))" Margin="Margin.Is0.FromStart" @ref="deadlineProjectPicker" Min="DateTimeOffset.Now" TimeAs24hr InputMode="DateInputMode.DateTime" TValue="DateTime?" @bind-Date="editProjectCommand.DeadLine"></DatePicker>
+									</Addon>
+									<Addon Margin="Margin.Is0.FromStart" AddonType="AddonType.End">
+										<Button Clicked="() => deadlineProjectPicker!.ToggleAsync()">
+											<Icon Name="IconName.CalendarDay"></Icon>
+										</Button>
+									</Addon>
+								</Addons>
+							</FieldBody>
+						</Field>
+					</Div>
+				</Div>
+				<Div Style="width: 33%" Flex="Flex.JustifyContent.Between">
+					@if (currentPermissions!.Contains(PermissionEnumDto.PM_EDIT) && currentPermissions!.Contains(PermissionEnumDto.PM_SET_LIMIT_ROLE))
+					{
+						<Button Margin="Margin.Is2.FromEnd" Background="Background.Primary" Disabled="!editProjectButtonEnabled" Clicked="EditProject">Edit</Button>
+					}
+					@if (currentPermissions!.Contains(PermissionEnumDto.TEAM_DELETE_PROJECT))
+					{
+						<Button Margin="Margin.Is2.FromEnd" Background="Background.Danger" Clicked="DeleteProject">Delete</Button>
+					}
+					@if (currentPermissions!.Contains(PermissionEnumDto.TEAM_LEAVE_PROJECT))
+					{
+						<Button Background="Background.Danger" Clicked="LeaveProject">Leave</Button>
+					}
+				</Div>
+			</TabPanel>
+		</Content>
+	</Tabs>
+}
+
+@code {
+	enum TaskShowMode
+	{
+		OnlyTasks,
+		OnlySubtasks,
+		All
+	}
+
+	class TaskCalendarItem
+	{
+		public string Name { get; set; }
+		public DateTime StartDate { get; set; }
+		public DateTime DeadLine { get; set; }
+		public string Color { get; set; }
+
+		public TaskCalendarItem(string name, DateTime startDate, DateTime deadLine, string color)
+		{
+			Name = name;
+			StartDate = startDate;
+			DeadLine = deadLine;
+			Color = color;
+		}
+	}
+
+	const string BACKLOG = "BACKLOG", TODO = "TODO", IN_PROGRESS = "IN_PROGRESS", REVIEW = "REVIEW", DONE = "DONE";
+
+	[Parameter]
+	public long ProjectId { get; set; }
+	Modal? addTeamModal, createTaskModal, editTaskModal, editSubtaskModal, createSubtaskModal;
+	bool addTeamButtonEnabled = false, createTaskButtonEnabled = false, editTaskButtonEnabled = true, editSubtaskButtonEnabled = true, createSubtaskButtonEnabled = false, editProjectButtonEnabled = true, firstLoad = true, showJustSubtask = false, updatingKanban = false;
+	Autocomplete<TeamDto, long?>? addTeamAutocomplete;
+	Autocomplete<UserDto, string>? assigneeAutocomplete, assigneeChangeAutocomplete, assigneeSubtaskChangeAutocomplete, assigneeSubtaskAutocomplete;
+	IEnumerable<TeamDto>? teamsFiltered;
+	IEnumerable<UserDto>? usersFiltered;
+	GetTeamsToAddToProjectQuery getTeamsToAddToProjectQuery = new GetTeamsToAddToProjectQuery();
+	GetProjectMembersQuery getProjectMembersQuery = new GetProjectMembersQuery();
+	ProjectMembersDto? members;
+	PermissionEnumDto[]? currentPermissions;
+	AddTeamToProjectCommand addTeamCommand = new AddTeamToProjectCommand();
+	Validations? createTaskValidations, editTaskValidations, editSubtaskValidations, createSubtaskValidations;
+	CreateTaskCommand createTaskCommand = new CreateTaskCommand(), createSubtaskCommand = new CreateTaskCommand();
+	DatePicker<DateTime?>? startDatePicker, deadlinePicker, startDateChangedPicker, deadlineChangedPicker, startDateSubtaskChangedPicker, deadlineSubtaskChangedPicker, startDateSubtaskPicker, deadlineSubtaskPicker, startDateProjectPicker, deadlineProjectPicker;
+	TaskDto[]? tasks;
+	GetProjectTasksQuery getTasksQuery = new GetProjectTasksQuery();
+	EditTaskCommand editTaskCommand = new EditTaskCommand(), editSubtaskCommand = new EditTaskCommand();
+	DeleteTaskCommand deleteTaskCommand = new DeleteTaskCommand();
+	AssignUserToTaskCommand assignUserToTaskCommand = new AssignUserToTaskCommand(), assignUserToSubtaskCommand = new AssignUserToTaskCommand();
+	ProjectDto? project;
+	TaskShowMode taskShowMode = TaskShowMode.OnlyTasks;
+	string selectedTab = "kanban";
+	IEnumerable<TaskDto> kanbanItems = new List<TaskDto>();
+	TeamMembersDto? selectedTeam;
+	FileEdit? imagePicker;
+	EditProjectCommand editProjectCommand = new EditProjectCommand();
+	SetLimitRoleCommand setLimitRoleCommand = new SetLimitRoleCommand();
+	PermissionDto[]? permissions;
+	IReadOnlyList<PermissionEnumDto>? selectedPermissionIds { get; set; }
+	ApexChartOptions<TaskCalendarItem>? options;
+	DropContainer<TaskDto>? kanban;
+	ApexChart<TaskCalendarItem>? calendar;
+	IEnumerable<TaskCalendarItem>? calendarItems;
+
+	protected override async Task OnInitializedAsync()
+	{
+		getProjectMembersQuery.ProjectId = ProjectId;
+		addTeamCommand.ProjectId = ProjectId;
+		createTaskCommand.ProjectId = ProjectId;
+		getTasksQuery.ProjectId = ProjectId;
+		editTaskCommand.ProjectId = ProjectId;
+		deleteTaskCommand.ProjectId = ProjectId;
+		assignUserToTaskCommand.ProjectId = ProjectId;
+		editSubtaskCommand.ProjectId = ProjectId;
+		assignUserToSubtaskCommand.ProjectId = ProjectId;
+		createSubtaskCommand.ProjectId = ProjectId;
+		editProjectCommand.ProjectId = ProjectId;
+		setLimitRoleCommand.ProjectId = ProjectId;
+		editTaskCommand.TaskId = 0;
+		permissions = await PermissionService.GetPermissions(new GetPermissionsQuery());
+		currentPermissions = (await ProjectService.GetCurrentPermissions(new GetCurrentUserProjectPermissionsQuery() { ProjectId = ProjectId })).Select(permission => permission.Id).ToArray();
+		project = await ProjectService.GetProjectById(new GetProjectByIdQuery() { ProjectId = ProjectId });
+		await UpdateMembers();
+		await UpdateTasks();
+		editProjectCommand.DeadLine = project!.DeadLine;
+		editProjectCommand.Description = project.Description;
+		editProjectCommand.Name = project.Name;
+		editProjectCommand.StartDate = project.StartDate;
+		setLimitRoleCommand.Name = project.LimitRole.Name;
+		setLimitRoleCommand.UseOwnHierarchy = project.UseOwnHierarchy;
+		selectedPermissionIds = project.LimitRole.Permissions.Select(permission => permission.Id).ToList();
+		options = new ApexChartOptions<TaskCalendarItem>()
+			{
+				PlotOptions = new PlotOptions()
+				{
+					Bar = new PlotOptionsBar()
+					{
+						Horizontal = true
+					}
+				}
+			};
+		firstLoad = false;
+	}
+
+	async Task ShowEditJustSubtaskModal(TaskDto subtask)
+	{
+		showJustSubtask = true;
+		await ShowEditSubtaskModal(subtask);
+	}
+
+	async Task TaskShowModeChanged(TaskShowMode value)
+	{
+		taskShowMode = value;
+		await UpdateTasks();
+	}
+
+	async Task FindTeams(AutocompleteReadDataEventArgs e)
+	{
+		if (!e.CancellationToken.IsCancellationRequested)
+		{
+			try
+			{
+				getTeamsToAddToProjectQuery.Name = e.SearchValue;
+				getTeamsToAddToProjectQuery.ProjectId = ProjectId;
+				teamsFiltered = (await ProjectService.GetTeamsToAddToProject(getTeamsToAddToProjectQuery));
+			}
+			catch (Exception ee)
+			{
+				if (!e.CancellationToken.IsCancellationRequested)
+				{
+					if (ee.Message.Contains("All users from the team are already project members"))
+						await ErrorHandler.HandleError(NotificationService, "All users from the team are already project members");
+					else
+						await ErrorHandler.HandleError(NotificationService);
+				}
+			}
+		}
+	}
+
+	void TeamIdChanged(long? value)
+	{
+		addTeamCommand.TeamId = value ?? 0;
+		if (value is null)
+			addTeamButtonEnabled = false;
+		else
+			addTeamButtonEnabled = true;
+	}
+
+	async Task AddTeam()
+	{
+		try
+		{
+			await ProjectService.AddTeamToProject(addTeamCommand);
+			await UpdateMembers();
+			addTeamCommand.TeamId = 0;
+			await addTeamAutocomplete!.Clear();
+		}
+		catch (Exception ex)
+		{
+			string errorMessage = ex.Message switch
+			{
+				string message when message.Contains("Project with provided id does not exist") => "Current project does not exist. Please go to \"Projects\" page",
+				string message when message.Contains("Team with provided id does not exist") => "Selected team does not exist",
+				string message when message.Contains("All users from the team are already project members") => "All users from the team are already project members",
+				string message when message.Contains("Current user is not a member of the team with provided id") => "You are not member of this team",
+				string message when message.Contains("Lack of permission") => "You haven't permission to add new team",
+				string message when message.Contains("Current user is not a member of the project with provided id") => "You are not member of this project. Please go to \"Projects\" page",
+				_ => string.Empty
+			};
+			if (string.IsNullOrEmpty(errorMessage))
+				await ErrorHandler.HandleError(NotificationService);
+			else
+				await ErrorHandler.HandleError(NotificationService, errorMessage);
+		}
+	}
+
+	async Task UpdateMembers()
+	{
+		try
+		{
+			members = await ProjectService.GetProjectMembers(getProjectMembersQuery);
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task UpdateTasks()
+	{
+		try
+		{
+			updatingKanban = true;
+			tasks = await ProjectService.GetTasks(getTasksQuery);
+			switch (taskShowMode)
+			{
+				case TaskShowMode.All:
+					kanbanItems = Enumerable.Concat(tasks.AsEnumerable(), tasks.SelectMany(task => task.Subtasks));
+					calendarItems = Enumerable.Concat(
+						tasks.Where(task => task.StartDate is not null && task.DeadLine is not null)
+						.Select(task => new TaskCalendarItem(task.Name, task.StartDate!.Value, task.DeadLine!.Value, "#0000FF")),
+						tasks.SelectMany(task => task.Subtasks)
+						.Where(task => task.StartDate is not null && task.DeadLine is not null)
+						.Select(task => new TaskCalendarItem(task.Name, task.StartDate!.Value, task.DeadLine!.Value, "#FF0000"))
+					);
+					break;
+				case TaskShowMode.OnlyTasks:
+					kanbanItems = tasks.AsEnumerable();
+					calendarItems = tasks.Where(task => task.StartDate is not null && task.DeadLine is not null)
+						.Select(task => new TaskCalendarItem(task.Name, task.StartDate!.Value, task.DeadLine!.Value, "#0000FF"));
+					break;
+				case TaskShowMode.OnlySubtasks:
+					kanbanItems = tasks.SelectMany(task => task.Subtasks);
+					calendarItems = tasks.SelectMany(task => task.Subtasks)
+						.Where(task => task.StartDate is not null && task.DeadLine is not null)
+						.Select(task => new TaskCalendarItem(task.Name, task.StartDate!.Value, task.DeadLine!.Value, "#FF0000"));
+					break;
+			}
+			if (!firstLoad)
+			{
+				await calendar!.RenderAsync();
+				StateHasChanged();
+				await calendar.RenderAsync();
+				if (kanbanItems.Count() > 0)
+				{
+					var task = kanbanItems.First();
+					var originalState = ConvertStatus(task.State);
+					kanban!.StartTransaction(task, originalState, -1, async () => await Task.Delay(1), async () => await Task.Delay(1));
+					await kanban.CommitTransaction(originalState, false);
+				}
+			}
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task HideAddTeamModal() => await addTeamModal!.Hide();
+
+	async Task ShowAddTeamModal() => await addTeamModal!.Show();
+
+	async Task HideCreateTaskModal() => await createTaskModal!.Hide();
+
+	async Task ShowCreateTaskModal() => await createTaskModal!.Show();
+
+	async Task HideCreateSubtaskModal()
+	{
+		await createSubtaskModal!.Hide();
+		await editSubtaskModal!.Show();
+	}
+
+	void CreateTaskValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			createTaskButtonEnabled = true;
+		else
+			createTaskButtonEnabled = false;
+	}
+
+	void CreateSubtaskValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			createSubtaskButtonEnabled = true;
+		else
+			createSubtaskButtonEnabled = false;
+	}
+
+	void EditTaskValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			editTaskButtonEnabled = true;
+		else
+			editTaskButtonEnabled = false;
+	}
+
+	void SelectedUserChanged(string value)
+	{
+		createTaskCommand.AssignedUserId = value;
+	}
+
+	void SelectedSubtaskUserChanged(string value)
+	{
+		createSubtaskCommand.AssignedUserId = value;
+	}
+
+	void SelectedChangeUserChanged(string value)
+	{
+		assignUserToTaskCommand.UserId = value;
+	}
+
+	void SelectedSubtaskChangeUserChanged(string value)
+	{
+		assignUserToSubtaskCommand.UserId = value;
+	}
+
+	async Task HideEditSubtaskModal()
+	{
+		await editSubtaskModal!.Hide();
+		await editTaskModal!.Show();
+	}
+
+	void FindUsers(AutocompleteReadDataEventArgs e)
+	{
+		if (!e.CancellationToken.IsCancellationRequested)
+		{
+			usersFiltered = members!.Members.SelectMany(member => member.Members).Select(user => user.User).Where(user => user.Name.ToLower().Contains(e.SearchValue.ToLower()));
+		}
+	}
+
+	async Task CreateTask()
+	{
+		try
+		{
+			await ProjectService.CreateTask(createTaskCommand);
+			await UpdateTasks();
+			await createTaskModal!.Hide();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task CreateSubtask()
+	{
+		try
+		{
+			await ProjectService.CreateTask(createSubtaskCommand);
+			await UpdateTasks();
+			await createSubtaskModal!.Hide();
+			await editTaskModal!.Show();
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task ShowCreateSubtaskModal()
+	{
+		createSubtaskCommand.ParentTaskId = editTaskCommand.TaskId;
+		await editTaskModal!.Hide();
+		await createSubtaskModal!.Show();
+	}
+
+	async Task ShowEditSubtaskModal(TaskDto subtask)
+	{
+		editSubtaskCommand.DeadLine = subtask.DeadLine;
+		editSubtaskCommand.Description = subtask.Description;
+		editSubtaskCommand.Name = subtask.Name;
+		editSubtaskCommand.StartDate = subtask.StartDate;
+		editSubtaskCommand.State = subtask.State;
+		editSubtaskCommand.TaskId = subtask.Id;
+		assignUserToSubtaskCommand.TaskId = subtask.Id;
+		assignUserToSubtaskCommand.UserId = string.Empty;
+		await editTaskModal!.Hide();
+		await editSubtaskModal!.Show();
+	}
+
+	async Task DeleteTask(TaskDto task)
+	{
+		try
+		{
+			deleteTaskCommand.TaskId = task.Id;
+			await ProjectService.DeleteTask(deleteTaskCommand);
+			await UpdateTasks();
+			deleteTaskCommand.TaskId = 0;
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task EditTask()
+	{
+		try
+		{
+			await ProjectService.EditTask(editTaskCommand);
+			if (!string.IsNullOrWhiteSpace(assignUserToTaskCommand.UserId))
+				await ProjectService.AssignUserToTask(assignUserToTaskCommand);
+			await UpdateTasks();
+			await editTaskModal!.Hide();
+			editTaskCommand.DeadLine = null;
+			editTaskCommand.Description = null;
+			editTaskCommand.Name = string.Empty;
+			editTaskCommand.StartDate = null;
+			editTaskCommand.State = TaskStateEnumDto.BACKLOG;
+			editTaskCommand.TaskId = 0;
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task EditSubtask()
+	{
+		try
+		{
+			await ProjectService.EditTask(editSubtaskCommand);
+			if (!string.IsNullOrWhiteSpace(assignUserToSubtaskCommand.UserId))
+				await ProjectService.AssignUserToTask(assignUserToSubtaskCommand);
+			await UpdateTasks();
+			await editSubtaskModal!.Hide();
+			if (!showJustSubtask)
+				await editTaskModal!.Show();
+			else
+				showJustSubtask = false;
+			editSubtaskCommand.DeadLine = null;
+			editSubtaskCommand.Description = null;
+			editSubtaskCommand.Name = string.Empty;
+			editSubtaskCommand.StartDate = null;
+			editSubtaskCommand.State = TaskStateEnumDto.BACKLOG;
+			editSubtaskCommand.TaskId = 0;
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task HideEditTaskModal() => await editTaskModal!.Hide();
+
+	async Task ShowEditTaskModal(TaskDto task)
+	{
+		editTaskCommand.DeadLine = task.DeadLine;
+		editTaskCommand.Description = task.Description;
+		editTaskCommand.Name = task.Name;
+		editTaskCommand.StartDate = task.StartDate;
+		editTaskCommand.State = task.State;
+		editTaskCommand.TaskId = task.Id;
+		assignUserToTaskCommand.TaskId = task.Id;
+		assignUserToTaskCommand.UserId = string.Empty;
+		await editTaskModal!.Show();
+	}
+
+	async Task ChangeStatus(DraggableDroppedEventArgs<TaskDto> e)
+	{
+		if (updatingKanban)
+		{
+			e.Item.State = ConvertStatus(e.DropZoneName);
+			updatingKanban = false;
+		}
+		else
+		{
+			if (!currentPermissions!.Contains(PermissionEnumDto.PM_EDIT_TASK))
+			{
+				await ErrorHandler.HandleError(NotificationService, "You haven't permission to change task status");
+			}
+			else
+			{
+				try
+				{
+					editTaskCommand.DeadLine = e.Item.DeadLine;
+					editTaskCommand.Description = e.Item.Description;
+					editTaskCommand.Name = e.Item.Name;
+					editTaskCommand.StartDate = e.Item.StartDate;
+					editTaskCommand.State = ConvertStatus(e.DropZoneName);
+					editTaskCommand.TaskId = e.Item.Id;
+					await ProjectService.EditTask(editTaskCommand);
+					e.Item.State = ConvertStatus(e.DropZoneName);
+				}
+				catch (Exception)
+				{
+					await ErrorHandler.HandleError(NotificationService);
+				}
+			}
+		}
+	}
+
+	TaskStateEnumDto ConvertStatus(string name)
+	{
+		switch (name)
+		{
+			case BACKLOG:
+				return TaskStateEnumDto.BACKLOG;
+			case TODO:
+				return TaskStateEnumDto.TODO;
+			case IN_PROGRESS:
+				return TaskStateEnumDto.IN_PROGRESS;
+			case REVIEW:
+				return TaskStateEnumDto.REVIEW;
+			case DONE:
+				return TaskStateEnumDto.DONE;
+			default:
+				throw new Exception("Invalid task status name");
+		}
+	}
+
+	string ConvertStatus(TaskStateEnumDto value)
+	{
+		switch (value)
+		{
+			case TaskStateEnumDto.BACKLOG:
+				return BACKLOG;
+			case TaskStateEnumDto.TODO:
+				return TODO;
+			case TaskStateEnumDto.IN_PROGRESS:
+				return IN_PROGRESS;
+			case TaskStateEnumDto.REVIEW:
+				return REVIEW;
+			case TaskStateEnumDto.DONE:
+				return DONE;
+			default:
+				throw new Exception("Invalid task status");
+		}
+	}
+
+	async Task OnSelectedTabChanged(string name)
+	{
+		selectedTab = name;
+		switch (name)
+		{
+			case "members":
+				await UpdateMembers();
+				break;
+			case "kanban":
+				await UpdateTasks();
+				break;
+			case "calendar":
+				await calendar!.UpdateSeriesAsync();
+				break;
+			case "settings":
+				project = await ProjectService.GetProjectById(new GetProjectByIdQuery() { ProjectId = ProjectId });
+				editProjectCommand.DeadLine = project!.DeadLine;
+				editProjectCommand.Description = project.Description;
+				editProjectCommand.Name = project.Name;
+				editProjectCommand.StartDate = project.StartDate;
+				setLimitRoleCommand.Name = project.LimitRole.Name;
+				setLimitRoleCommand.UseOwnHierarchy = project.UseOwnHierarchy;
+				selectedPermissionIds = project.LimitRole.Permissions.Select(permission => permission.Id).ToList();
+				break;
+		}
+	}
+
+	void EditSubtaskValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			editSubtaskButtonEnabled = true;
+		else
+			editSubtaskButtonEnabled = false;
+	}
+
+	async Task KickTeam(long id)
+	{
+		try
+		{
+			await ProjectService.KickTeamFromProject(new KickTeamFromProjectCommand() { ProjectId = ProjectId, TeamId = id });
+			members!.Members.Remove(members.Members.First(member => member.TeamInfo.Id == id));
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	void ProjectEditValidationChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			editProjectButtonEnabled = true;
+		else
+			editProjectButtonEnabled = false;
+	}
+
+	async Task DeleteProject()
+	{
+		try
+		{
+			await ProjectService.DeleteProject(new DeleteProjectCommand() { ProjectId = ProjectId });
+			NavigationManager.NavigateTo("/projects");
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task LeaveProject()
+	{
+		try
+		{
+			await ProjectService.LeaveProject(new LeaveProjectCommand() { ProjectId = ProjectId });
+			NavigationManager.NavigateTo("/projects");
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+
+	async Task EditProject()
+	{
+		try
+		{
+			setLimitRoleCommand.PermissionIds = selectedPermissionIds is null ? new List<int>() : selectedPermissionIds.Select(id => (int)id).ToList();
+			await ProjectService.EditProject(editProjectCommand);
+			await ProjectService.SetLimitRole(setLimitRoleCommand);
+			project = await ProjectService.GetProjectById(new GetProjectByIdQuery() { ProjectId = ProjectId });
+		}
+		catch (Exception)
+		{
+			await ErrorHandler.HandleError(NotificationService);
+		}
+	}
+}

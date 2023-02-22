@@ -1,0 +1,45 @@
+﻿@inject IUserService UserService
+@inject NavigationManager NavigationManager
+
+<Bar Breakpoint="Breakpoint.Desktop" NavigationBreakpoint="Breakpoint.Tablet" ThemeContrast="ThemeContrast.Dark"
+     Mode="BarMode.VerticalInline" CollapseMode="BarCollapseMode.Small">
+    <BarToggler Style="color: white" />
+    <BarBrand>
+        <BarItem>
+            <BarLink To="/">
+                <BarIcon IconName="IconName.Home"></BarIcon>
+                Team It
+            </BarLink>
+        </BarItem>
+    </BarBrand>
+    <BarMenu>
+        <BarStart>
+            <BarItem>
+                <BarLink To="/teams">
+                    <BarIcon IconName="IconName.UserFriends"></BarIcon>
+                    Teams
+                </BarLink>
+            </BarItem>
+            <BarItem>
+                <BarLink To="/projects">
+                    <BarIcon IconName="IconName.Dashboard"></BarIcon>
+                    Projects
+                </BarLink>
+            </BarItem>
+            <BarItem>
+                <BarLink To="/chat">
+                    <BarIcon IconName="IconName.Comments"></BarIcon>
+                    Chats
+                </BarLink>
+            </BarItem>
+        </BarStart>
+        <BarEnd>
+            <BarItem>
+                <BarLink Clicked="@(() => { UserService.Logout(); NavigationManager.NavigateTo("/account/login"); })">
+                    <BarIcon IconName="IconName.TimesCircle"></BarIcon>
+                    Log out
+                </BarLink>
+            </BarItem>
+        </BarEnd>
+    </BarMenu>
+</Bar>

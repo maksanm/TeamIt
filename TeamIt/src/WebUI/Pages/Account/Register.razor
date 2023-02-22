@@ -1,0 +1,138 @@
+﻿@page "/account/register"
+
+@using Models.Users.Commands;
+
+@inject IUserService UserService
+@inject NavigationManager NavigationManager
+@inject INotificationService NotificationService
+
+<Div Margin="Margin.Is2.FromBottom" Style="background-image: url(images/login.jpg); background-size: 110% 110%; background-position: center; background-repeat: no-repeat" Width="Width.Is100" Height="Height.Is100" Flex="Flex.AlignItems.Center.JustifyContent.Center">
+	<Card Width="Width.Is25">
+		<CardHeader>
+			<CardTitle>
+				Register
+			</CardTitle>
+		</CardHeader>
+		<CardBody>
+			<Validations StatusChanged="ValidationStatusChanged" Mode="ValidationMode.Auto" ValidateOnLoad="false">
+				<Validation Validator="@((e) => Validator.IsNotNullOrWhiteSpace(e, "Name"))">
+					<Field>
+						<FieldLabel>
+							Name*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit Placeholder="Your name" @bind-Text="registerCommand.Name">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+				<Validation Validator="@((e) => Validator.IsNotNullOrWhiteSpace(e, "Surname"))">
+					<Field>
+						<FieldLabel>
+							Surname*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit Placeholder="Your surname" @bind-Text="registerCommand.Surname">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+				<Field>
+					<FieldLabel>
+						Image
+					</FieldLabel>
+					<FieldBody>
+						<FileEdit @ref="imagePicker" Filter=".jpg, .png"></FileEdit>
+					</FieldBody>
+				</Field>
+				<Validation Validator="@((e) => Validator.IsNotNullOrWhiteSpace(e, "Login"))">
+					<Field>
+						<FieldLabel>
+							Login*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit Placeholder="Your login" @bind-Text="registerCommand.Login">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+				<Validation Validator="ValidatePasswordWithRepeat">
+					<Field>
+						<FieldLabel>
+							Password*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit Role="TextRole.Password" Placeholder="Your password" @bind-Text="registerCommand.Password">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+				<Validation @ref="repeatPasswordValidator" Validator="@((e) => Validator.IsEqualTo(e, "Repeat password", "Password", registerCommand.Password))">
+					<Field>
+						<FieldLabel>
+							Repeat password*
+						</FieldLabel>
+						<FieldBody>
+							<TextEdit Role="TextRole.Password" Placeholder="Repeat your password">
+								<Feedback>
+									<ValidationError></ValidationError>
+								</Feedback>
+							</TextEdit>
+						</FieldBody>
+					</Field>
+				</Validation>
+			</Validations>
+		</CardBody>
+		<CardFooter>
+			<Button Background="Background.Primary" Disabled="!registerButtonEnabled" Margin="Margin.Is2.FromEnd" Clicked="RegisterUser">Register</Button>
+			<Anchor To="/account/login">Log in</Anchor>
+		</CardFooter>
+	</Card>
+</Div>
+
+@code {
+	Validation? repeatPasswordValidator;
+	RegisterCommand registerCommand = new RegisterCommand();
+	FileEdit? imagePicker;
+	bool registerButtonEnabled = false;
+
+	async Task RegisterUser()
+	{
+		try
+		{
+			await UserService.Register(registerCommand, imagePicker!.Files is null || imagePicker.Files.Length == 0 ? null : imagePicker.Files[0]);
+		}
+		catch (Exception)
+		{
+			await NotificationService.Error("Unhandled error happend. Please reload page and try again", "Error");
+			return;
+		}
+		NavigationManager.NavigateTo("/");
+	}
+
+	void ValidationStatusChanged(ValidationsStatusChangedEventArgs e)
+	{
+		if (e.Status == ValidationStatus.Success)
+			registerButtonEnabled = true;
+		else
+			registerButtonEnabled = false;
+	}
+
+	void ValidatePasswordWithRepeat(ValidatorEventArgs e)
+	{
+		repeatPasswordValidator!.Validate();
+		Validator.IsPassword(e);
+	}
+}
