@@ -73,9 +73,9 @@ namespace Application.Handlers.Tasks.Commands
 
         private void ValidateDeadLine(EditTaskCommand request)
         {
-            if (request.StartDate is not null && request.DeadLine < request.StartDate)
+            if (request.StartDate != _task.StartDate && request.DeadLine < request.StartDate)
                 throw new ValidationException("Deadline date should be greater than start date");
-            if (request.DeadLine is not null && request.DeadLine < DateTime.Now)
+            if (request.DeadLine != _task.DeadLine && request.DeadLine < DateTime.Now)
                 throw new ValidationException("Invalid deadline date");
         }
     }
