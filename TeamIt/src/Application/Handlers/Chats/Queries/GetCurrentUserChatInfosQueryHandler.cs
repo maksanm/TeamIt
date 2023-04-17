@@ -35,6 +35,7 @@ namespace Application.Handlers.Chats.Queries
                 .Where(cp => cp.TeamProfile != null && cp.TeamProfile.UserId == currentUser.Id ||
                              cp.ProjectProfile != null && cp.ProjectProfile.TeamProfile.UserId == currentUser.Id)
                 .Select(cp => cp.Chat)
+                .Distinct()
                 .ToListAsync();
             var chatInfoDtos = _mapper.Map<IList<ChatInfoDto>>(currentUserChats);
             return chatInfoDtos;

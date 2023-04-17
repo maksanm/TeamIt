@@ -75,7 +75,7 @@ namespace Application.Handlers.Tasks.Commands
         {
             if (request.StartDate is not null && request.DeadLine < request.StartDate)
                 throw new ValidationException("Deadline date should be greater than start date");
-            if (request.DeadLine < DateTime.Now)
+            if (request.DeadLine is not null && request.DeadLine < DateTime.Now)
                 throw new ValidationException("Invalid deadline date");
         }
     }
